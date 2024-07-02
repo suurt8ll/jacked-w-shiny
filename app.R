@@ -22,15 +22,15 @@ lapply(required_libs, require, character.only = TRUE)
 # Funktsioonid
 calculate_max_tonnage <- function(harjutus, tonnage_criteria) {
   exercise_data <- merged_df %>%
-    filter(Harjutus == harjutus) %>%
+    filter(Exercise == harjutus) %>%
     mutate(
-      T1 = R1 * (BW. * (Kehakaalu.kordaja * Kehakaal_MA) + W1),
-      T2 = R2 * (BW. * (Kehakaalu.kordaja * Kehakaal_MA) + W2),
-      T3 = R3 * (BW. * (Kehakaalu.kordaja * Kehakaal_MA) + W3),
-      T4 = R4 * (BW. * (Kehakaalu.kordaja * Kehakaal_MA) + W4),
-      T5 = R5 * (BW. * (Kehakaalu.kordaja * Kehakaal_MA) + W5)
+      T1 = R1 * (isBW * (bwMultiplier * BodyWeight_MA) + W1),
+      T2 = R2 * (isBW * (bwMultiplier * BodyWeight_MA) + W2),
+      T3 = R3 * (isBW * (bwMultiplier * BodyWeight_MA) + W3),
+      T4 = R4 * (isBW * (bwMultiplier * BodyWeight_MA) + W4),
+      T5 = R5 * (isBW * (bwMultiplier * BodyWeight_MA) + W5)
     ) %>%
-    select(Kuupäev, Harjutus, T1, T2, T3, T4, T5)
+    select(Date, Exercise, T1, T2, T3, T4, T5)
   
   # Determine the maximum tonnage for each date dynamically
   max_tonnage_data <- exercise_data %>%
@@ -54,38 +54,36 @@ calculate_max_tonnage <- function(harjutus, tonnage_criteria) {
     }) %>%
     ungroup() %>%
     filter(!is.na(MaxTonnage)) %>%
-    select(Kuupäev, TonnageCriteria, MaxTonnage)
+    select(Date, TonnageCriteria, MaxTonnage)
 }
 
 # Andmete laadimine
-trenni_logi <- read_ods(path = "/home/madis/documents/tervis/fitness-log.ods",
-                        sheet = "Trenni logi",
-                        .name_repair = "universal")
-tervise_logi <- read_ods(path = "/home/madis/documents/tervis/fitness-log.ods",
-                         sheet = "Tervisenäitajate logi",
-                         .name_repair = "universal")
-harjutuste_andmebaas <- read_ods(path = "/home/madis/documents/tervis/fitness-log.ods",
-                                 sheet = "Andmebaas",
-                                 .name_repair = "universal")
-harjutuste_andmebaas <- harjutuste_andmebaas[, 1:6]
+trenni_logi <- read_ods(path = "./fitness-log.ods",
+                        sheet = "TrainingLog")
+tervise_logi <- read_ods(path = "./fitness-log.ods",
+                         sheet = "WeightLog")
+harjutuste_andmebaas <- read_ods(path = "./fitness-log.ods",
+                                 sheet = "ExerciseDatabase")
 
 # Andmete korrastamine
-tervise_logi$Kuupäev <- as.Date(tervise_logi$Kuupäev, "%d/%m/%y")
-trenni_logi$Kuupäev <- as.Date(trenni_logi$Kuupäev, "%d/%m/%y")
-harjutuste_andmebaas$Kehakaalu.kordaja <- ifelse(
-  is.na(harjutuste_andmebaas$Kehakaalu.kordaja),
+tervise_logi$Date <- as.Date(tervise_logi$Date, "%m/%d/%y")
+# FIXME: Intermediary dates are missing, but they are needed for calculations. A solution is required.
+trenni_logi$Date <- as.Date(trenni_logi$Date, "%m/%d/%y")
+# If exercise is not body-weight then multiplier is missing, convert these to 0.
+harjutuste_andmebaas$bwMultiplier <- ifelse(
+  is.na(harjutuste_andmebaas$bwMultiplier),
   0,
-  harjutuste_andmebaas$Kehakaalu.kordaja
+  harjutuste_andmebaas$bwMultiplier
 )
 
 # Greasy hack, et ma näeks numbreid, kui pole kaua aega kaalnunud
-tervise_logi$Kehakaal[nrow(tervise_logi)] <- ifelse(is.na(tail(tervise_logi$Kehakaal, n = 1)),
-                                                    tail(na.trim(tervise_logi$Kehakaal), n = 1),
-                                                    tail(tervise_logi$Kehakaal, n = 1))
+tervise_logi$BodyWeight[nrow(tervise_logi)] <- ifelse(is.na(tail(tervise_logi$BodyWeight, n = 1)),
+                                                    tail(na.trim(tervise_logi$BodyWeight), n = 1),
+                                                    tail(tervise_logi$BodyWeight, n = 1))
 # Use rollapply to calculate the moving average, ignoring NA values
-tervise_logi$Kehakaal_interpolated <- na.approx(tervise_logi$Kehakaal, na.rm = FALSE)
-tervise_logi$Kehakaal_MA <- rollapply(
-  tervise_logi$Kehakaal_interpolated,
+tervise_logi$BodyWeight_interpolated <- na.approx(tervise_logi$BodyWeight, na.rm = FALSE)
+tervise_logi$BodyWeight_MA <- rollapply(
+  tervise_logi$BodyWeight_interpolated,
   width = 30,
   FUN = mean,
   fill = NA,
@@ -94,14 +92,14 @@ tervise_logi$Kehakaal_MA <- rollapply(
 
 # Tekita üks suur juicy dataframe, mis hoomab kõike.
 merged_df <- trenni_logi %>%
-  left_join(harjutuste_andmebaas, by = "Harjutus") %>%
-  left_join(tervise_logi, by = "Kuupäev")
+  left_join(harjutuste_andmebaas, by = "Exercise") %>%
+  left_join(tervise_logi, by = "Date")
 
 ui <- dashboardPage(
   dashboardHeader(title = "GAINZ"),
   
   dashboardSidebar(sidebarMenu(
-    menuItem("Kehakaal", tabName = "kaal", icon = icon("bar-chart")),
+    menuItem("BodyWeight", tabName = "kaal", icon = icon("bar-chart")),
     menuItem("Aktiivus", tabName = "aktiivsus", icon = icon("bar-chart")),
     menuItem("Tonnage", tabName = "maxtonnage", icon = icon("bar-chart")),
     menuItem(
@@ -130,8 +128,8 @@ ui <- dashboardPage(
       fluidRow(
         selectInput(
           "harjutus",
-          "Harjutus",
-          choices = unique(trenni_logi$Harjutus),
+          "Exercise",
+          choices = unique(trenni_logi$Exercise),
           selected = "Pull-up"
         )
       ),
@@ -148,8 +146,8 @@ ui <- dashboardPage(
       fluidRow(
         selectInput(
           "calc_harjutus",
-          "Harjutus",
-          choices = unique(trenni_logi$Harjutus),
+          "Exercise",
+          choices = unique(trenni_logi$Exercise),
           selected = "Pull-up"
         )
       ),
@@ -173,19 +171,21 @@ ui <- dashboardPage(
 server <- function(input, output, session) {
   output$kehakaalPlot <- renderPlotly({
     # Plot the data using ggplot2
-    p <- ggplot(tervise_logi, aes(x = Kuupäev)) +
-      geom_point(aes(y = Kehakaal), color = "grey", na.rm = TRUE) +
-      geom_line(aes(y = Kehakaal_MA),
+    p <- ggplot(tervise_logi, aes(x = Date)) +
+      geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
+      geom_line(aes(y = BodyWeight_MA),
                 color = "black",
                 na.rm = TRUE) +
-      labs(title = "Kehakaal with 30-Day Moving Average", x = "Date", y = "Kehakaal") +
+      labs(title = "BodyWeight with 30-Day Moving Average", x = "Date", y = "BodyWeight") +
       theme_minimal()
     ggplotly(p)
   })
   
   output$aktiivsusBarPlot <- renderPlotly({
+    # FIXME Exercise duration has been moved to TrainingLog, this does not work anymore.
+    
     # Create a new column for the week number
-    tervise_logi$Week <- format(as.Date(tervise_logi$Kuupäev), "%Y-%U")
+    tervise_logi$Week <- format(as.Date(tervise_logi$Date), "%Y-%U")
     
     # Summarize the data to get weekly sums
     weekly_sums <- tervise_logi %>%
@@ -214,7 +214,7 @@ server <- function(input, output, session) {
     }
     
     p <- ggplot(max_tonnage_data_long,
-                aes(x = Kuupäev, y = MaxTonnage, colour = TonnageCriteria)) +
+                aes(x = Date, y = MaxTonnage, colour = TonnageCriteria)) +
       geom_line() +
       geom_point() +
       scale_color_brewer() +
@@ -238,5 +238,5 @@ server <- function(input, output, session) {
   })
 }
 
-#options(shiny.port = 6006)
-shinyApp(ui = ui, server = server)
+app <- shinyApp(ui = ui, server = server)
+runApp(app, port=6006)
