@@ -57,28 +57,27 @@ calculate_max_tonnage <- function(harjutus, tonnage_criteria) {
     select(Date, TonnageCriteria, MaxTonnage)
 }
 
-# Andmete laadimine
-trenni_logi <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
-tervise_logi <- read_ods(path = "./fitness-log.ods", sheet = "WeightLog")
+# Load data from Libreoffice Calc file
+training_log <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
+health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
 harjutuste_andmebaas <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
 
 # Andmete korrastamine
-tervise_logi$Date <- as.Date(tervise_logi$Date, "%m/%d/%y")
-# FIXME: Intermediary dates are missing, but they are needed for calculations. A solution is required.
-trenni_logi$Date <- as.Date(trenni_logi$Date, "%m/%d/%y")
+health_log$Date <- as.Date(health_log$Date, "%m/%d/%y")
+training_log$Date <- as.Date(training_log$Date, "%m/%d/%y")
 # If exercise is not body-weight then multiplier is missing, convert these to 0.
 harjutuste_andmebaas$bwMultiplier <- ifelse(is.na(harjutuste_andmebaas$bwMultiplier),
                                             0,
                                             harjutuste_andmebaas$bwMultiplier)
 
 # Greasy hack, et ma näeks numbreid, kui pole kaua aega kaalnunud
-tervise_logi$BodyWeight[nrow(tervise_logi)] <- ifelse(is.na(tail(tervise_logi$BodyWeight, n = 1)),
-                                                      tail(na.trim(tervise_logi$BodyWeight), n = 1),
-                                                      tail(tervise_logi$BodyWeight, n = 1))
+health_log$BodyWeight[nrow(health_log)] <- ifelse(is.na(tail(health_log$BodyWeight, n = 1)),
+                                                      tail(na.trim(health_log$BodyWeight), n = 1),
+                                                      tail(health_log$BodyWeight, n = 1))
 # Use rollapply to calculate the moving average, ignoring NA values
-tervise_logi$BodyWeight_interpolated <- na.approx(tervise_logi$BodyWeight, na.rm = FALSE)
-tervise_logi$BodyWeight_MA <- rollapply(
-  tervise_logi$BodyWeight_interpolated,
+health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
+health_log$BodyWeight_MA <- rollapply(
+  health_log$BodyWeight_interpolated,
   width = 30,
   FUN = mean,
   fill = NA,
@@ -86,12 +85,12 @@ tervise_logi$BodyWeight_MA <- rollapply(
 )
 
 # Tekita üks suur juicy dataframe, mis hoomab kõike.
-merged_df <- trenni_logi %>%
+merged_df <- training_log %>%
   left_join(harjutuste_andmebaas, by = "Exercise") %>%
-  left_join(tervise_logi, by = "Date")
+  left_join(health_log, by = "Date")
 
 # Plot the data using ggplot2
-p <- ggplot(tervise_logi, aes(x = Date)) +
+p <- ggplot(health_log, aes(x = Date)) +
   geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
   geom_line(aes(y = BodyWeight_MA),
             color = "black",
@@ -100,15 +99,14 @@ p <- ggplot(tervise_logi, aes(x = Date)) +
   theme_minimal()
 ggplotly(p)
 
-# FIXME Exercise duration has been moved to TrainingLog, this does not work anymore.
 
 # Create a new column for the week number
-tervise_logi$Week <- format(as.Date(tervise_logi$Date), "%Y-%U")
+health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
 
 # Summarize the data to get weekly sums
-weekly_sums <- tervise_logi %>%
+weekly_sums <- health_log %>%
   group_by(Week) %>%
-  summarise(WeeklySum = sum(Aktiivsed.minutid, na.rm = TRUE))
+  summarise(WeeklySum = sum(ActiveMinutes, na.rm = TRUE))
 
 # Plot the data using ggplot2
 p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
