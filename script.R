@@ -1,3 +1,4 @@
+#---- Packages and functions ----
 required_libs <- c(
   "shiny",
   "shinydashboard",
@@ -20,9 +21,9 @@ for (lib in required_libs) {
 lapply(required_libs, require, character.only = TRUE)
 
 # Funktsioonid
-calculate_max_tonnage <- function(harjutus, tonnage_criteria) {
+calculate_max_tonnage <- function(exercise, tonnage_criteria) {
   exercise_data <- merged_df %>%
-    filter(Exercise == harjutus) %>%
+    filter(Exercise == exercise) %>%
     mutate(
       T1 = R1 * (isBW * (bwMultiplier * BodyWeight_MA) + W1),
       T2 = R2 * (isBW * (bwMultiplier * BodyWeight_MA) + W2),
@@ -57,23 +58,25 @@ calculate_max_tonnage <- function(harjutus, tonnage_criteria) {
     select(Date, TonnageCriteria, MaxTonnage)
 }
 
+#---- Data loading ----
+
 # Load data from Libreoffice Calc file
 training_log <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
 health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
-harjutuste_andmebaas <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
+exercisete_andmebaas <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
 
 # Andmete korrastamine
 health_log$Date <- as.Date(health_log$Date, "%m/%d/%y")
 training_log$Date <- as.Date(training_log$Date, "%m/%d/%y")
 # If exercise is not body-weight then multiplier is missing, convert these to 0.
-harjutuste_andmebaas$bwMultiplier <- ifelse(is.na(harjutuste_andmebaas$bwMultiplier),
+exercisete_andmebaas$bwMultiplier <- ifelse(is.na(exercisete_andmebaas$bwMultiplier),
                                             0,
-                                            harjutuste_andmebaas$bwMultiplier)
+                                            exercisete_andmebaas$bwMultiplier)
 
 # Greasy hack, et ma näeks numbreid, kui pole kaua aega kaalnunud
 health_log$BodyWeight[nrow(health_log)] <- ifelse(is.na(tail(health_log$BodyWeight, n = 1)),
-                                                      tail(na.trim(health_log$BodyWeight), n = 1),
-                                                      tail(health_log$BodyWeight, n = 1))
+                                                  tail(na.trim(health_log$BodyWeight), n = 1),
+                                                  tail(health_log$BodyWeight, n = 1))
 # Use rollapply to calculate the moving average, ignoring NA values
 health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
 health_log$BodyWeight_MA <- rollapply(
@@ -86,8 +89,10 @@ health_log$BodyWeight_MA <- rollapply(
 
 # Tekita üks suur juicy dataframe, mis hoomab kõike.
 merged_df <- training_log %>%
-  left_join(harjutuste_andmebaas, by = "Exercise") %>%
+  left_join(exercisete_andmebaas, by = "Exercise") %>%
   left_join(health_log, by = "Date")
+
+#--- Graphs ----
 
 # Plot the data using ggplot2
 p <- ggplot(health_log, aes(x = Date)) +
@@ -116,12 +121,26 @@ p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ggplotly(p)
 
-harjutus <- "Pull-up"
+# This will plot a graph of tonnage recods.
+exercise <- "Pull-up"
+date <- as.Date("2024-07-04")
+#date <- as.Date("2024-07-04")
+
+# Rough logic for the dynamic drop-down menu
+if (length(date) != 0) {
+  # Limit choices to the given date's exercises.
+  exercise_list <- training_log %>% filter(Date == date) %>% select(Exercise)
+  exercise_list <- unique(exercise_list[["Exercise"]])
+} else {
+  # Whole exercise list gets used if no date is chosen.
+  exercise_list <- unique(training_log$Exercise)
+}
+
 max_tonnage_data_long <- data.frame()
 for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
   max_tonnage_data_long <- rbind(
     max_tonnage_data_long,
-    calculate_max_tonnage(harjutus = harjutus, tonnage_criteria = tonnage_criteria)
+    calculate_max_tonnage(exercise = exercise, tonnage_criteria = tonnage_criteria)
   )
 }
 
@@ -137,7 +156,7 @@ ggplotly(p)
 calc_sets <- 1
 calc_weight <- 60
 # Calculate reps
-reps_alltime <- max(calculate_max_tonnage(harjutus, calc_sets)$MaxTonnage) / as.numeric(calc_weight)
+reps_alltime <- max(calculate_max_tonnage(exercise, calc_sets)$MaxTonnage) / as.numeric(calc_weight)
 reps_alltime <- ceiling(reps_alltime)
 paste("Reps needed for all time PR for",
       calc_sets,
@@ -146,13 +165,10 @@ paste("Reps needed for all time PR for",
       sep = " ")
 
 # Calculate reps
-reps_prev <- tail(calculate_max_tonnage(harjutus, calc_sets)$MaxTonnage,
-                  1) / as.numeric(calc_weight)
+reps_prev <- tail(calculate_max_tonnage(exercise, calc_sets)$MaxTonnage, 1) / as.numeric(calc_weight)
 reps_prev <- ceiling(reps_prev)
-paste(
-  "Reps needed to outdo previous workout sesh for",
-  calc_sets,
-  "sets:",
-  reps_prev,
-  sep = " "
-)
+paste("Reps needed to outdo previous workout sesh for",
+      calc_sets,
+      "sets:",
+      reps_prev,
+      sep = " ")

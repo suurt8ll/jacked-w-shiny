@@ -1,3 +1,4 @@
+#---- Packages and functions ----
 required_libs <- c(
   "shiny",
   "shinydashboard",
@@ -20,9 +21,9 @@ for (lib in required_libs) {
 lapply(required_libs, require, character.only = TRUE)
 
 # Funktsioonid
-calculate_max_tonnage <- function(harjutus, tonnage_criteria) {
+calculate_max_tonnage <- function(exercise, tonnage_criteria) {
   exercise_data <- merged_df %>%
-    filter(Exercise == harjutus) %>%
+    filter(Exercise == exercise) %>%
     mutate(
       T1 = R1 * (isBW * (bwMultiplier * BodyWeight_MA) + W1),
       T2 = R2 * (isBW * (bwMultiplier * BodyWeight_MA) + W2),
@@ -57,6 +58,7 @@ calculate_max_tonnage <- function(harjutus, tonnage_criteria) {
     select(Date, TonnageCriteria, MaxTonnage)
 }
 
+#---- Data loading ----
 # Load data from Libreoffice Calc file
 training_log <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
 health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
@@ -66,16 +68,14 @@ harjutuste_andmebaas <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDa
 health_log$Date <- as.Date(health_log$Date, "%m/%d/%y")
 training_log$Date <- as.Date(training_log$Date, "%m/%d/%y")
 # If exercise is not body-weight then multiplier is missing, convert these to 0.
-harjutuste_andmebaas$bwMultiplier <- ifelse(
-  is.na(harjutuste_andmebaas$bwMultiplier),
-  0,
-  harjutuste_andmebaas$bwMultiplier
-)
+harjutuste_andmebaas$bwMultiplier <- ifelse(is.na(harjutuste_andmebaas$bwMultiplier),
+                                            0,
+                                            harjutuste_andmebaas$bwMultiplier)
 
 # Greasy hack, et ma näeks numbreid, kui pole kaua aega kaalnunud
 health_log$BodyWeight[nrow(health_log)] <- ifelse(is.na(tail(health_log$BodyWeight, n = 1)),
-                                                    tail(na.trim(health_log$BodyWeight), n = 1),
-                                                    tail(health_log$BodyWeight, n = 1))
+                                                  tail(na.trim(health_log$BodyWeight), n = 1),
+                                                  tail(health_log$BodyWeight, n = 1))
 # Use rollapply to calculate the moving average, ignoring NA values
 health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
 health_log$BodyWeight_MA <- rollapply(
@@ -91,15 +91,20 @@ merged_df <- training_log %>%
   left_join(harjutuste_andmebaas, by = "Exercise") %>%
   left_join(health_log, by = "Date")
 
+#---- Shiny ui ----
 ui <- dashboardPage(
   dashboardHeader(title = "GAINZ"),
   
   dashboardSidebar(sidebarMenu(
-    menuItem("BodyWeight", tabName = "kaal", icon = icon("bar-chart")),
+    menuItem(
+      "BodyWeight",
+      tabName = "kaal",
+      icon = icon("bar-chart")
+    ),
     menuItem("Aktiivus", tabName = "aktiivsus", icon = icon("bar-chart")),
     menuItem("Tonnage", tabName = "maxtonnage", icon = icon("bar-chart")),
     menuItem(
-      "Kalkulaator",
+      "Calculator",
       tabName = "calc",
       icon = icon("bar-chart")
     )
@@ -121,14 +126,16 @@ ui <- dashboardPage(
     ),
     tabItem(
       tabName = "maxtonnage",
-      fluidRow(
-        selectInput(
-          "harjutus",
-          "Exercise",
-          choices = unique(training_log$Exercise),
-          selected = "Pull-up"
+      fluidRow(column(
+        width = 6, dateInput(
+          "date",
+          "Date",
+          min = min(training_log$Date),
+          max = max(training_log$Date)
         )
-      ),
+      ), column(
+        width = 6, selectInput("exercise", "Exercise", choices = unique(training_log$Exercise))
+      )),
       fluidRow(
         tags$style(
           type = "text/css",
@@ -141,7 +148,7 @@ ui <- dashboardPage(
       tabName = "calc",
       fluidRow(
         selectInput(
-          "calc_harjutus",
+          "calc_exercise",
           "Exercise",
           choices = unique(training_log$Exercise),
           selected = "Pull-up"
@@ -164,11 +171,26 @@ ui <- dashboardPage(
   skin = "green"
 )
 
+#---- Shiny server ----
 server <- function(input, output, session) {
+  observe({
+    if (length(input$date) != 0) {
+      x <- unique(training_log %>% filter(Date == input$date) %>% select(Exercise) %>% unlist())
+    } else {
+      x <- unique(training_log$Exercise)
+    }
+    updateSelectInput(session, "exercise",
+                      choices = x)
+    updateSelectInput(session, "calc_exercise",
+                      choices = x)
+  })
+  
   output$kehakaalPlot <- renderPlotly({
     # Plot the data using ggplot2
     p <- ggplot(health_log, aes(x = Date)) +
-      geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
+      geom_point(aes(y = BodyWeight),
+                 color = "grey",
+                 na.rm = TRUE) +
       geom_line(aes(y = BodyWeight_MA),
                 color = "black",
                 na.rm = TRUE) +
@@ -178,7 +200,6 @@ server <- function(input, output, session) {
   })
   
   output$aktiivsusBarPlot <- renderPlotly({
-    
     # Create a new column for the week number
     health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
     
@@ -202,7 +223,7 @@ server <- function(input, output, session) {
       max_tonnage_data_long <- rbind(
         max_tonnage_data_long,
         calculate_max_tonnage(
-          harjutus = input$harjutus,
+          exercise = input$exercise,
           tonnage_criteria = tonnage_criteria
         )
       )
@@ -221,20 +242,33 @@ server <- function(input, output, session) {
   output$calc_reps <- renderText({
     # Calculate reps
     # TODO If reps are perfectly round, add 1 to it to avoid stagnation.
-    reps_alltime <- max(calculate_max_tonnage(input$calc_harjutus, input$calc_sets)$MaxTonnage) / as.numeric(input$calc_weight)
+    reps_alltime <- max(calculate_max_tonnage(input$calc_exercise, input$calc_sets)$MaxTonnage) / as.numeric(input$calc_weight)
     reps_alltime <- ceiling(reps_alltime)
-    paste("Reps needed for all time PR for", input$calc_sets, "sets:", reps_alltime, sep = " ")
+    paste("Reps needed for all time PR for",
+          input$calc_sets,
+          "sets:",
+          reps_alltime,
+          sep = " ")
   })
   
   output$calc_reps_prev <- renderText({
     # Calculate reps
-    reps_prev <- tail(calculate_max_tonnage(input$calc_harjutus, input$calc_sets)$MaxTonnage, 1) / as.numeric(input$calc_weight)
+    reps_prev <- tail(calculate_max_tonnage(input$calc_exercise, input$calc_sets)$MaxTonnage,
+                      1) / as.numeric(input$calc_weight)
     reps_prev <- ceiling(reps_prev)
-    paste("Reps needed to outdo previous workout sesh for", input$calc_sets, "sets:", reps_prev, sep = " ")
+    paste(
+      "Reps needed to outdo previous workout sesh for",
+      input$calc_sets,
+      "sets:",
+      reps_prev,
+      sep = " "
+    )
   })
 }
 
-app <- shinyApp(ui = ui, server = server)
-runApp(app, port=6006, host="0.0.0.0")
+#---- Run the Shiny app ----
+shinyApp(ui = ui, server = server)
+#app <- shinyApp(ui = ui, server = server)
+#runApp(app, port=6006, host="0.0.0.0")
 # Use this if you don't want to expose your dashboard to the LAN.
 #runApp(app, port=6006)
