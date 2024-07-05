@@ -59,20 +59,19 @@ calculate_max_tonnage <- function(exercise, tonnage_criteria) {
 }
 
 #---- Data loading ----
+# TODO User should have an option to reload data directly in app without needing to restart the whole program.
+# ^ Hint: this can be done separately in bash script, user needs to press a key to refresh.
 # Load data from Libreoffice Calc file
 training_log <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
 health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
-harjutuste_andmebaas <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
+exercise_df <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
 
-# Andmete korrastamine
+# Format data
 health_log$Date <- as.Date(health_log$Date, "%m/%d/%y")
 training_log$Date <- as.Date(training_log$Date, "%m/%d/%y")
-# If exercise is not body-weight then multiplier is missing, convert these to 0.
-harjutuste_andmebaas$bwMultiplier <- ifelse(is.na(harjutuste_andmebaas$bwMultiplier),
-                                            0,
-                                            harjutuste_andmebaas$bwMultiplier)
-
-# Greasy hack, et ma näeks numbreid, kui pole kaua aega kaalnunud
+# If exercise is not body-weight then the multiplier is missing, convert these to 0.
+exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
+# Put the last known body-weight as weight if it's missing.
 health_log$BodyWeight[nrow(health_log)] <- ifelse(is.na(tail(health_log$BodyWeight, n = 1)),
                                                   tail(na.trim(health_log$BodyWeight), n = 1),
                                                   tail(health_log$BodyWeight, n = 1))
@@ -86,9 +85,9 @@ health_log$BodyWeight_MA <- rollapply(
   align = "right"
 )
 
-# Tekita üks suur juicy dataframe, mis hoomab kõike.
+# Merge everything to one big, juicy dataframe
 merged_df <- training_log %>%
-  left_join(harjutuste_andmebaas, by = "Exercise") %>%
+  left_join(exercise_df, by = "Exercise") %>%
   left_join(health_log, by = "Date")
 
 #---- Shiny ui ----
@@ -179,10 +178,8 @@ server <- function(input, output, session) {
     } else {
       x <- unique(training_log$Exercise)
     }
-    updateSelectInput(session, "exercise",
-                      choices = x)
-    updateSelectInput(session, "calc_exercise",
-                      choices = x)
+    updateSelectInput(session, "exercise", choices = x)
+    updateSelectInput(session, "calc_exercise", choices = x)
   })
   
   output$kehakaalPlot <- renderPlotly({
@@ -241,9 +238,15 @@ server <- function(input, output, session) {
   
   output$calc_reps <- renderText({
     # Calculate reps
-    # TODO If reps are perfectly round, add 1 to it to avoid stagnation.
     reps_alltime <- max(calculate_max_tonnage(input$calc_exercise, input$calc_sets)$MaxTonnage) / as.numeric(input$calc_weight)
-    reps_alltime <- ceiling(reps_alltime)
+    # Add 1 if the reps are perfectly round, this avoids stagnation.
+    # FIXME Fix the errors that pop up when no weight is selected. Do it for reps_prev also.
+    # FIXME Get calculations also working for body-weight exercises. Do it for reps_prev also.
+    if (reps_alltime %% 1 == 0) {
+      reps_alltime <- reps_alltime + 1
+    } else {
+      reps_alltime <- ceiling(reps_alltime)
+    }
     paste("Reps needed for all time PR for",
           input$calc_sets,
           "sets:",
@@ -255,7 +258,12 @@ server <- function(input, output, session) {
     # Calculate reps
     reps_prev <- tail(calculate_max_tonnage(input$calc_exercise, input$calc_sets)$MaxTonnage,
                       1) / as.numeric(input$calc_weight)
-    reps_prev <- ceiling(reps_prev)
+    # Add 1 if the reps are perfectly round, this avoids stagnation.
+    if (reps_prev %% 1 == 0) {
+      reps_prev <- reps_prev + 1
+    } else {
+      reps_prev <- ceiling(reps_prev)
+    }
     paste(
       "Reps needed to outdo previous workout sesh for",
       input$calc_sets,
@@ -267,8 +275,10 @@ server <- function(input, output, session) {
 }
 
 #---- Run the Shiny app ----
-shinyApp(ui = ui, server = server)
-#app <- shinyApp(ui = ui, server = server)
-#runApp(app, port=6006, host="0.0.0.0")
+app <- shinyApp(ui = ui, server = server)
+runApp(app, port = 6006, host = "0.0.0.0")
 # Use this if you don't want to expose your dashboard to the LAN.
 #runApp(app, port=6006)
+
+# Comment everything above and uncomment this to get it working inside RStudio
+#shinyApp(ui = ui, server = server)
