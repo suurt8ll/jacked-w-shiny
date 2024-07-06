@@ -121,12 +121,8 @@ p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ggplotly(p)
 
-# This will plot a graph of tonnage recods.
-exercise <- "Pull-up"
-date <- as.Date("2024-07-04")
-#date <- as.Date("2024-07-04")
-
 # Rough logic for the dynamic drop-down menu
+date <- as.Date("2024-07-04")
 if (length(date) != 0) {
   # Limit choices to the given date's exercises.
   exercise_list <- training_log %>% filter(Date == date) %>% select(Exercise)
@@ -136,6 +132,8 @@ if (length(date) != 0) {
   exercise_list <- unique(training_log$Exercise)
 }
 
+# This will plot a graph of tonnage recods.
+exercise <- "Barbell back squat"
 max_tonnage_data_long <- data.frame()
 for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
   max_tonnage_data_long <- rbind(
@@ -153,22 +151,12 @@ p <- ggplot(max_tonnage_data_long,
   theme_dark()
 ggplotly(p)
 
-calc_sets <- 1
-calc_weight <- 60
-# Calculate reps
-reps_alltime <- max(calculate_max_tonnage(exercise, calc_sets)$MaxTonnage) / as.numeric(calc_weight)
-reps_alltime <- ceiling(reps_alltime)
-paste("Reps needed for all time PR for",
-      calc_sets,
-      "sets:",
-      reps_alltime,
-      sep = " ")
-
-# Calculate reps
-reps_prev <- tail(calculate_max_tonnage(exercise, calc_sets)$MaxTonnage, 1) / as.numeric(calc_weight)
-reps_prev <- ceiling(reps_prev)
-paste("Reps needed to outdo previous workout sesh for",
-      calc_sets,
-      "sets:",
-      reps_prev,
-      sep = " ")
+calc_weight <- 120
+max_tonnage_data_long %>%
+  group_by(TonnageCriteria) %>%
+  summarise(maxTonnage = max(MaxTonnage),
+            lastTonnage = tail(MaxTonnage, 1)) %>%
+  mutate(repsPR = maxTonnage / as.numeric(calc_weight),
+         repsBeatPrev = lastTonnage / as.numeric(calc_weight)) %>%
+  mutate(repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
+         repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))))

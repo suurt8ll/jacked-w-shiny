@@ -90,6 +90,7 @@ merged_df <- training_log %>%
   left_join(exercise_df, by = "Exercise") %>%
   left_join(health_log, by = "Date")
 
+# FIXME all graphs should follow green theme like the page.
 #---- Shiny ui ----
 ui <- dashboardPage(
   dashboardHeader(title = "GAINZ"),
@@ -100,13 +101,9 @@ ui <- dashboardPage(
       tabName = "kaal",
       icon = icon("bar-chart")
     ),
-    menuItem("Aktiivus", tabName = "aktiivsus", icon = icon("bar-chart")),
+    menuItem("Activity", tabName = "activity", icon = icon("bar-chart")),
     menuItem("Tonnage", tabName = "maxtonnage", icon = icon("bar-chart")),
-    menuItem(
-      "Calculator",
-      tabName = "calc",
-      icon = icon("bar-chart")
-    )
+    menuItem("Calculator", tabName = "calc", icon = icon("bar-chart"))
   )),
   
   dashboardBody(tabItems(
@@ -116,12 +113,12 @@ ui <- dashboardPage(
       plotlyOutput("kehakaalPlot", height = "100%", width = "100%")
     ),
     tabItem(
-      tabName = "aktiivsus",
+      tabName = "activity",
       tags$style(
         type = "text/css",
-        "#aktiivsusBarPlot {height: calc(100vh - 80px) !important;}"
+        "#activityBarPlot {height: calc(100vh - 80px) !important;}"
       ),
-      plotlyOutput("aktiivsusBarPlot", height = "100%", width = "100%")
+      plotlyOutput("activityBarPlot", height = "100%", width = "100%")
     ),
     tabItem(
       tabName = "maxtonnage",
@@ -148,18 +145,9 @@ ui <- dashboardPage(
       fluidRow(selectInput(
         "calc_exercise", "Exercise", choices = unique(training_log$Exercise)
       )),
-      fluidRow(
-        sliderInput(
-          "calc_sets",
-          "Calculate PR for n sets:",
-          min = 1,
-          max = 5,
-          value = 1
-        )
-      ),
-      fluidRow(textInput("calc_weight", "Weight (kg):", value = 60)),
-      fluidRow(textOutput("calc_reps")),
-      fluidRow(textOutput("calc_reps_prev"))
+      # FIXME step should be customizable based on users own situation and wants.
+      fluidRow(numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5)),
+      fluidRow(tableOutput("calc_reps"))
     )
   )),
   skin = "green"
@@ -201,7 +189,7 @@ server <- function(input, output, session) {
     ggplotly(p)
   })
   
-  output$aktiivsusBarPlot <- renderPlotly({
+  output$activityBarPlot <- renderPlotly({
     # Create a new column for the week number
     health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
     
@@ -241,41 +229,29 @@ server <- function(input, output, session) {
     ggplotly(p)
   })
   
-  output$calc_reps <- renderText({
-    # Calculate reps
-    reps_alltime <- max(calculate_max_tonnage(input$calc_exercise, input$calc_sets)$MaxTonnage) / as.numeric(input$calc_weight)
-    # Add 1 if the reps are perfectly round, this avoids stagnation.
-    # FIXME Fix the errors that pop up when no weight is selected. Do it for reps_prev also.
-    # FIXME Get calculations also working for body-weight exercises. Do it for reps_prev also.
-    if (reps_alltime %% 1 == 0) {
-      reps_alltime <- reps_alltime + 1
-    } else {
-      reps_alltime <- ceiling(reps_alltime)
+  output$calc_reps <- renderTable({
+    # TODO this shares alot with the maxTonnagePlot logic, merge them somehow?
+    max_tonnage_data_long <- data.frame()
+    for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
+      max_tonnage_data_long <- rbind(
+        max_tonnage_data_long,
+        calculate_max_tonnage(
+          exercise = input$exercise,
+          tonnage_criteria = tonnage_criteria
+        )
+      )
     }
-    paste("Reps needed for all time PR for",
-          input$calc_sets,
-          "sets:",
-          reps_alltime,
-          sep = " ")
-  })
-  
-  output$calc_reps_prev <- renderText({
-    # Calculate reps
-    reps_prev <- tail(calculate_max_tonnage(input$calc_exercise, input$calc_sets)$MaxTonnage,
-                      1) / as.numeric(input$calc_weight)
-    # Add 1 if the reps are perfectly round, this avoids stagnation.
-    if (reps_prev %% 1 == 0) {
-      reps_prev <- reps_prev + 1
-    } else {
-      reps_prev <- ceiling(reps_prev)
-    }
-    paste(
-      "Reps needed to outdo previous workout sesh for",
-      input$calc_sets,
-      "sets:",
-      reps_prev,
-      sep = " "
-    )
+    # FIXME in case of body-weight exercises user should only need to input additional weight.
+    # Currently user needs note down the MA weight from BodyWeight tab and calculate the weight from head.
+    # FIXME round the tonnage fields to integer level.
+    max_tonnage_data_long %>%
+      group_by(TonnageCriteria) %>%
+      summarise(maxTonnage = max(MaxTonnage),
+                lastTonnage = tail(MaxTonnage, 1)) %>%
+      mutate(repsPR = maxTonnage / as.numeric(input$calc_weight),
+             repsBeatPrev = lastTonnage / as.numeric(input$calc_weight)) %>%
+      mutate(repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
+             repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))))
   })
 }
 
