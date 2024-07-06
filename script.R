@@ -63,15 +63,15 @@ calculate_max_tonnage <- function(exercise, tonnage_criteria) {
 # Load data from Libreoffice Calc file
 training_log <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
 health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
-exercisete_andmebaas <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
+exercise_df <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
 
 # Andmete korrastamine
 health_log$Date <- as.Date(health_log$Date, "%m/%d/%y")
 training_log$Date <- as.Date(training_log$Date, "%m/%d/%y")
 # If exercise is not body-weight then multiplier is missing, convert these to 0.
-exercisete_andmebaas$bwMultiplier <- ifelse(is.na(exercisete_andmebaas$bwMultiplier),
+exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier),
                                             0,
-                                            exercisete_andmebaas$bwMultiplier)
+                                            exercise_df$bwMultiplier)
 
 # Greasy hack, et ma näeks numbreid, kui pole kaua aega kaalnunud
 health_log$BodyWeight[nrow(health_log)] <- ifelse(is.na(tail(health_log$BodyWeight, n = 1)),
@@ -89,7 +89,7 @@ health_log$BodyWeight_MA <- rollapply(
 
 # Tekita üks suur juicy dataframe, mis hoomab kõike.
 merged_df <- training_log %>%
-  left_join(exercisete_andmebaas, by = "Exercise") %>%
+  left_join(exercise_df, by = "Exercise") %>%
   left_join(health_log, by = "Date")
 
 #--- Graphs ----
@@ -133,7 +133,7 @@ if (length(date) != 0) {
 }
 
 # This will plot a graph of tonnage recods.
-exercise <- "Barbell back squat"
+exercise <- "Pull-up"
 max_tonnage_data_long <- data.frame()
 for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
   max_tonnage_data_long <- rbind(
@@ -151,12 +151,14 @@ p <- ggplot(max_tonnage_data_long,
   theme_dark()
 ggplotly(p)
 
-calc_weight <- 120
+calc_weight <- 0
 max_tonnage_data_long %>%
   group_by(TonnageCriteria) %>%
-  summarise(maxTonnage = max(MaxTonnage),
-            lastTonnage = tail(MaxTonnage, 1)) %>%
-  mutate(repsPR = maxTonnage / as.numeric(calc_weight),
-         repsBeatPrev = lastTonnage / as.numeric(calc_weight)) %>%
+  summarise(
+    maxTonnage = max(MaxTonnage),
+    lastTonnage = tail(MaxTonnage, 1)
+  ) %>%
+  mutate(repsPR = maxTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$BodyWeight_MA, 1)),
+          repsBeatPrev = lastTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$BodyWeight_MA, 1))) %>%
   mutate(repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
-         repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))))
+          repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))))

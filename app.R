@@ -85,6 +85,7 @@ health_log$BodyWeight_MA <- rollapply(
   align = "right"
 )
 
+# FIXME Exercises not in exercise_df should be omitted.
 # Merge everything to one big, juicy dataframe
 merged_df <- training_log %>%
   left_join(exercise_df, by = "Exercise") %>%
@@ -236,31 +237,32 @@ server <- function(input, output, session) {
       max_tonnage_data_long <- rbind(
         max_tonnage_data_long,
         calculate_max_tonnage(
-          exercise = input$exercise,
+          exercise = input$calc_exercise,
           tonnage_criteria = tonnage_criteria
         )
       )
     }
-    # FIXME in case of body-weight exercises user should only need to input additional weight.
-    # Currently user needs note down the MA weight from BodyWeight tab and calculate the weight from head.
-    # FIXME round the tonnage fields to integer level.
     max_tonnage_data_long %>%
       group_by(TonnageCriteria) %>%
-      summarise(maxTonnage = max(MaxTonnage),
-                lastTonnage = tail(MaxTonnage, 1)) %>%
-      mutate(repsPR = maxTonnage / as.numeric(input$calc_weight),
-             repsBeatPrev = lastTonnage / as.numeric(input$calc_weight)) %>%
+      summarise(
+        maxTonnage = max(MaxTonnage),
+        lastTonnage = tail(MaxTonnage, 1)
+      ) %>%
+      mutate(repsPR = maxTonnage / (input$calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] * tail(merged_df$BodyWeight_MA, 1)),
+             repsBeatPrev = lastTonnage / (input$calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] * tail(merged_df$BodyWeight_MA, 1))) %>%
       mutate(repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
-             repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))))
+             repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))),
+             maxTonnage = as.integer(round(maxTonnage)),
+             lastTonnage = as.integer(round(lastTonnage)))
   })
 }
 
 #---- Run the Shiny app ----
 app <- shinyApp(ui = ui, server = server)
 
-runApp(app, port = 6006, host = "0.0.0.0")
+#runApp(app, port = 6006, host = "0.0.0.0")
 # Use this if you don't want to expose your dashboard to the LAN.
 #runApp(app, port=6006)
 
 # Comment out runApp() and uncomment this to get it working inside RStudio.
-#app
+app
