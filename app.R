@@ -145,14 +145,9 @@ ui <- dashboardPage(
     ),
     tabItem(
       tabName = "calc",
-      fluidRow(
-        selectInput(
-          "calc_exercise",
-          "Exercise",
-          choices = unique(training_log$Exercise),
-          selected = "Pull-up"
-        )
-      ),
+      fluidRow(selectInput(
+        "calc_exercise", "Exercise", choices = unique(training_log$Exercise)
+      )),
       fluidRow(
         sliderInput(
           "calc_sets",
@@ -172,6 +167,7 @@ ui <- dashboardPage(
 
 #---- Shiny server ----
 server <- function(input, output, session) {
+  # Filter the exercise choice list based on chosen date
   observe({
     if (length(input$date) != 0) {
       x <- unique(training_log %>% filter(Date == input$date) %>% select(Exercise) %>% unlist())
@@ -180,6 +176,15 @@ server <- function(input, output, session) {
     }
     updateSelectInput(session, "exercise", choices = x)
     updateSelectInput(session, "calc_exercise", choices = x)
+  })
+  # TODO maybe two input fields can share the same variable name? This would be a cleaner solution.
+  # Sync the choses exercise between graph and calc tabs
+  observe({
+    updateSelectInput(session, "exercise", selected = input$calc_exercise)
+  })
+  # Sync the choses exercise between graph and calc tabs
+  observe({
+    updateSelectInput(session, "calc_exercise", selected = input$exercise)
   })
   
   output$kehakaalPlot <- renderPlotly({
@@ -276,9 +281,10 @@ server <- function(input, output, session) {
 
 #---- Run the Shiny app ----
 app <- shinyApp(ui = ui, server = server)
+
 runApp(app, port = 6006, host = "0.0.0.0")
 # Use this if you don't want to expose your dashboard to the LAN.
 #runApp(app, port=6006)
 
-# Comment everything above and uncomment this to get it working inside RStudio
-#shinyApp(ui = ui, server = server)
+# Comment out runApp() and uncomment this to get it working inside RStudio.
+#app
