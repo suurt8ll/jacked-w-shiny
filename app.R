@@ -67,8 +67,8 @@ health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
 exercise_df <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
 
 # Format data
-health_log$Date <- as.Date(health_log$Date, "%m/%d/%y")
-training_log$Date <- as.Date(training_log$Date, "%m/%d/%y")
+health_log$Date <- as.Date(health_log$Date, "%y-%m-%d")
+training_log$Date <- as.Date(training_log$Date, "%y-%m-%d")
 # If exercise is not body-weight then the multiplier is missing, convert these to 0.
 exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
 # Put the last known body-weight as weight if it's missing.
@@ -225,7 +225,7 @@ server <- function(input, output, session) {
       geom_line() +
       geom_point() +
       scale_color_brewer() +
-      scale_y_log10() +
+      #scale_y_log10() +
       theme_dark()
     ggplotly(p)
   })

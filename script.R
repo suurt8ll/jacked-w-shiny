@@ -9,19 +9,24 @@ required_libs <- c(
   "zoo",
   "ggplot2",
   "scales",
-  "plotly"
+  "plotly",
+  "TTR",
+  "lubridate"
 )
-# Vaatab, kas vajalikud paketid on olemas, kui ei ole siis installib need.
+# Install missing libraries.
 for (lib in required_libs) {
   if (!(lib %in% installed.packages()[, "Package"])) {
     install.packages(lib)
   }
 }
-# Pakettide laadimine
+# Load all libraries.
 lapply(required_libs, require, character.only = TRUE)
 
-# Funktsioonid
-calculate_max_tonnage <- function(exercise, tonnage_criteria) {
+# Functions
+calculate_max_tonnage <- function(exercise, tonnage_criteria, window="d", fill_missing=FALSE) {
+  #TODO Implement the ability to choose a window length (daily, weekly, monthly, yearly).
+  #TODO Boolean for telling the function if it should fill in the missing values or not.
+  # Select the exercise and calculate tonnage for each set.
   exercise_data <- merged_df %>%
     filter(Exercise == exercise) %>%
     mutate(
@@ -33,16 +38,16 @@ calculate_max_tonnage <- function(exercise, tonnage_criteria) {
     ) %>%
     select(Date, Exercise, T1, T2, T3, T4, T5)
   
-  # Determine the maximum tonnage for each date dynamically
+  # Determine the maximum tonnage for each date dynamically.
   max_tonnage_data <- exercise_data %>%
     rowwise() %>%
     mutate(TonnageCriteria = tonnage_criteria, MaxTonnage = {
       sets <- c(T1, T2, T3, T4, T5)
+      # Removes the "max" part of the string and converts to numeric.
       criteria <- as.numeric(gsub("max", "", tonnage_criteria))
       
       # Filter out NA values and check the number of valid sets
       valid_sets <- sets[!is.na(sets)]
-      
       if (length(valid_sets) < criteria) {
         NA
       } else {
@@ -132,7 +137,7 @@ if (length(date) != 0) {
   exercise_list <- unique(training_log$Exercise)
 }
 
-# This will plot a graph of tonnage recods.
+# This will plot a graph of tonnage records
 exercise <- "Pull-up"
 max_tonnage_data_long <- data.frame()
 for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
@@ -142,14 +147,57 @@ for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
   )
 }
 
+#TODO Implement the ability to choose a window length (daily, weekly, monthly, yearly).
+#TODO Boolean for telling the function if it should fill in the missing values or not.
+# Select the exercise and calculate tonnage for each set.
+exercise_data <- merged_df %>%
+  filter(Exercise == exercise) %>%
+  mutate(
+    ISOWeek = format(Date, "%G-W%V"),
+    T1 = R1 * (isBW * (bwMultiplier * BodyWeight_MA) + W1),
+    T2 = R2 * (isBW * (bwMultiplier * BodyWeight_MA) + W2),
+    T3 = R3 * (isBW * (bwMultiplier * BodyWeight_MA) + W3),
+    T4 = R4 * (isBW * (bwMultiplier * BodyWeight_MA) + W4),
+    T5 = R5 * (isBW * (bwMultiplier * BodyWeight_MA) + W5)
+  ) %>%
+  select(Date, ISOWeek, Exercise, T1, T2, T3, T4, T5)
+
+# Determine the maximum tonnage for each date dynamically.
+tonnage_criteria = "max1"
+max_tonnage_data <- exercise_data %>%
+  rowwise() %>%
+  mutate(TonnageCriteria = tonnage_criteria, MaxTonnage = {
+    sets <- c(T1, T2, T3, T4, T5)
+    # Removes the "max" part of the string and converts to numeric.
+    criteria <- as.numeric(gsub("max", "", tonnage_criteria))
+    
+    # Filter out NA values and check the number of valid sets
+    valid_sets <- sets[!is.na(sets)]
+    if (length(valid_sets) < criteria) {
+      NA
+    } else {
+      if (criteria == 1) {
+        max(valid_sets, na.rm = TRUE)
+      } else {
+        max(apply(combn(valid_sets, criteria), 2, sum, na.rm = TRUE), na.rm = TRUE)
+      }
+    }
+  }) %>%
+  ungroup() %>%
+  filter(!is.na(MaxTonnage)) %>%
+  select(Date, TonnageCriteria, MaxTonnage)
+
 p <- ggplot(max_tonnage_data_long,
             aes(x = Date, y = MaxTonnage, colour = TonnageCriteria)) +
   geom_line() +
-  geom_point() +
+  geom_point(size = 1) +
   scale_color_brewer() +
   scale_y_log10() +
   theme_dark()
 ggplotly(p)
+
+# For EMA calculations we need weekly data points. Let's simply fill missing
+# tonnage data with last known value.
 
 calc_weight <- 0
 max_tonnage_data_long %>%
