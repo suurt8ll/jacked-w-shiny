@@ -209,23 +209,6 @@ exercise_data <- merged_df %>%
   mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
   select(date, tonnage)
 
-# Number of sets to analyze
-n_sets <- 3 # Example: User wants max tonnage for 2 sets
-
-# Calculate max tonnage for the given number of sets
-max_tonnage_data <- calculate_max_tonnage(exercise_data, n_sets)
-
-# Create the plot
-ggplot(max_tonnage_data, aes(x = date, y = max_tonnage)) +
-  geom_line(color = "blue", linewidth = 1) +
-  geom_point(color = "red", size = 2) +
-  labs(
-    title = paste("Max Tonnage Records for", n_sets, "Sets"),
-    x = "Date",
-    y = "Max Tonnage"
-  ) +
-  theme_minimal()
-
 # Generate results for multiple `n` values
 results <- lapply(1:5, function(n) {
   calculate_max_tonnage(exercise_data, n) %>%
