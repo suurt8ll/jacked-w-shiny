@@ -98,7 +98,11 @@ health_log$Date <- as.Date(health_log$Date, date_format_ods)
 training_log$Date <- as.Date(training_log$Date, date_format_ods)
 massive_db <- massive_db %>%
   select(name, reps, weight, created) %>%
-  mutate(created = as.POSIXct(created, format = date_format_sqlite))
+  mutate(
+    name = trimws(name),
+    created = as.POSIXct(created, format = date_format_sqlite),
+    date = as.Date(created)
+  )
 
 # Fix missing bodyweight multipliers
 exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
@@ -120,10 +124,35 @@ health_log$BodyWeight_MA <- rollapply(
   fill = NA,
   align = "right"
 )
+# Pivot longer: Combine R1, R2,... and W1, W2,... into rows
+training_log_long <- training_log %>%
+  pivot_longer(
+    cols = starts_with("R") | starts_with("W"),   # Columns to pivot
+    names_to = c(".value", "Set"),               # Extract values (R/W) and Set number
+    names_pattern = "([RW])(\\d+)"               # Regex to split column names into R/W and set number
+  ) %>%
+  filter(!(is.na(R) & is.na(W))) %>%      # Drop rows where both Reps and Weight are NA
+  rename(
+    date = Date,                              # Rename Date to created
+    name = Exercise,                             # Rename Exercise to name
+    reps = R,                                 # Rename Reps to reps
+    weight = W                              # Rename Weight to weight
+  ) %>%
+  arrange(date, Num, Set) %>%                         # Optional: Arrange rows by date and set
+  select(name, reps, weight, date, everything()) # Reorder columns with the renamed ones first
 # Merge everything into one big dataframe.
-merged_df <- training_log %>%
-  left_join(exercise_df, by = "Exercise") %>%
-  left_join(health_log, by = "Date")
+merged_df_libreoffice <- training_log_long %>%
+  left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(health_log, by = c("date" = "Date"))
+merged_df_massive <- massive_db %>%
+  left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(health_log, by = c("date" = "Date"))
+# Bind rows with only common columns
+merged_df <- bind_rows(
+  merged_df_libreoffice %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive)))),
+  merged_df_massive %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive))))
+)
+rm("con", "exercise_df", "health_log", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
 
 #--- Graphs ----
 
