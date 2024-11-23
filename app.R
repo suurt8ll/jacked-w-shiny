@@ -1,4 +1,4 @@
-#---- Packages and functions ----
+#---- Packages and Functions ----
 required_libs <- c(
   "shiny",
   "shinydashboard",
@@ -9,89 +9,129 @@ required_libs <- c(
   "zoo",
   "ggplot2",
   "scales",
-  "plotly"
+  "plotly",
+  "RSQLite"
 )
-# Vaatab, kas vajalikud paketid on olemas, kui ei ole siis installib need.
+# Install missing libraries.
 for (lib in required_libs) {
   if (!(lib %in% installed.packages()[, "Package"])) {
     install.packages(lib)
   }
 }
-# Pakettide laadimine
+# Load all libraries.
 lapply(required_libs, require, character.only = TRUE)
 
-# Funktsioonid
-calculate_max_tonnage <- function(exercise, tonnage_criteria) {
-  exercise_data <- merged_df %>%
-    filter(Exercise == exercise) %>%
-    mutate(
-      T1 = R1 * (isBW * (bwMultiplier * BodyWeight_MA) + W1),
-      T2 = R2 * (isBW * (bwMultiplier * BodyWeight_MA) + W2),
-      T3 = R3 * (isBW * (bwMultiplier * BodyWeight_MA) + W3),
-      T4 = R4 * (isBW * (bwMultiplier * BodyWeight_MA) + W4),
-      T5 = R5 * (isBW * (bwMultiplier * BodyWeight_MA) + W5)
+# Functions
+# Calculate max tonnage for `n` sets
+calculate_max_tonnage <- function(data, n) {
+  data %>%
+    group_by(date) %>%
+    summarise(
+      max_tonnage = if (n > n()) NA else max(apply(combn(tonnage, n), 2, sum, na.rm = TRUE)),
+      .groups = "drop"
     ) %>%
-    select(Date, Exercise, T1, T2, T3, T4, T5)
-  
-  # Determine the maximum tonnage for each date dynamically
-  max_tonnage_data <- exercise_data %>%
-    rowwise() %>%
-    mutate(TonnageCriteria = tonnage_criteria, MaxTonnage = {
-      sets <- c(T1, T2, T3, T4, T5)
-      criteria <- as.numeric(gsub("max", "", tonnage_criteria))
-      
-      # Filter out NA values and check the number of valid sets
-      valid_sets <- sets[!is.na(sets)]
-      
-      if (length(valid_sets) < criteria) {
-        NA
-      } else {
-        if (criteria == 1) {
-          max(valid_sets, na.rm = TRUE)
-        } else {
-          max(apply(combn(valid_sets, criteria), 2, sum, na.rm = TRUE), na.rm = TRUE)
-        }
-      }
-    }) %>%
-    ungroup() %>%
-    filter(!is.na(MaxTonnage)) %>%
-    select(Date, TonnageCriteria, MaxTonnage)
+    filter(!is.na(max_tonnage)) # Exclude dates with fewer than `n` sets
 }
 
+#---- Parameters ----
+# File paths
+ods_path <- "./fitness-log.ods"
+sqlite_path <- "./massive (1).db"
+
+# Sheet names
+training_log_sheet <- "TrainingLog"
+health_log_sheet <- "HealthLog"
+exercise_db_sheet <- "ExerciseDatabase"
+
+# Date formats
+date_format_ods <- "%m/%d/%y"
+date_format_sqlite <- "%Y-%m-%dT%H:%M:%S"
+
+# Rolling average window size
+rolling_window <- 30
+
 #---- Data loading ----
+
 # TODO User should have an option to reload data directly in app without needing to restart the whole program.
 # ^ Hint: this can be done separately in bash script, user needs to press a key to refresh.
-# Load data from Libreoffice Calc file
-training_log <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
-health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
-exercise_df <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
 
-# Format data
-health_log$Date <- as.Date(health_log$Date, "%y-%m-%d")
-training_log$Date <- as.Date(training_log$Date, "%y-%m-%d")
-# If exercise is not body-weight then the multiplier is missing, convert these to 0.
+# Load data from LibreOffice Calc file
+training_log <- read_ods(path = ods_path, sheet = training_log_sheet)
+health_log <- read_ods(path = ods_path, sheet = health_log_sheet)
+exercise_df <- read_ods(path = ods_path, sheet = exercise_db_sheet)
+
+# Load data from SQLite database
+con <- dbConnect(SQLite(), sqlite_path)
+massive_db <- dbReadTable(con, "sets")
+dbDisconnect(con)
+
+#---- Data Cleaning ----
+# Convert dates
+health_log$Date <- as.Date(health_log$Date, date_format_ods)
+training_log$Date <- as.Date(training_log$Date, date_format_ods)
+massive_db <- massive_db %>%
+  select(name, reps, weight, created) %>%
+  mutate(
+    name = trimws(name),
+    created = as.POSIXct(created, format = date_format_sqlite),
+    date = as.Date(created)
+  )
+
+# Fix missing bodyweight multipliers
 exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
-# Put the last known body-weight as weight if it's missing.
-health_log$BodyWeight[nrow(health_log)] <- ifelse(is.na(tail(health_log$BodyWeight, n = 1)),
-                                                  tail(na.trim(health_log$BodyWeight), n = 1),
-                                                  tail(health_log$BodyWeight, n = 1))
-# Use rollapply to calculate the moving average, ignoring NA values
+
+# Carry last body weight forward to current date
+health_log$BodyWeight[nrow(health_log)] <- ifelse(
+  is.na(tail(health_log$BodyWeight, n = 1)),
+  tail(na.trim(health_log$BodyWeight), n = 1),
+  tail(health_log$BodyWeight, n = 1)
+)
+
+#---- Data Transformations ----
+
+# FIXME Exercises not in exercise_df should be omitted.
+
+# Interpolate missing bodyweight data and calculate moving average
 health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
 health_log$BodyWeight_MA <- rollapply(
   health_log$BodyWeight_interpolated,
-  width = 30,
+  width = rolling_window,
   FUN = mean,
   fill = NA,
   align = "right"
 )
-
-# FIXME Exercises not in exercise_df should be omitted.
-# Merge everything to one big, juicy dataframe
-merged_df <- training_log %>%
-  left_join(exercise_df, by = "Exercise") %>%
-  left_join(health_log, by = "Date")
+# Pivot longer: Combine R1, R2,... and W1, W2,... into rows
+training_log_long <- training_log %>%
+  pivot_longer(
+    cols = starts_with("R") | starts_with("W"),   # Columns to pivot
+    names_to = c(".value", "Set"),               # Extract values (R/W) and Set number
+    names_pattern = "([RW])(\\d+)"               # Regex to split column names into R/W and set number
+  ) %>%
+  filter(!(is.na(R) & is.na(W))) %>%      # Drop rows where both Reps and Weight are NA
+  rename(
+    date = Date,                              # Rename Date to created
+    name = Exercise,                             # Rename Exercise to name
+    reps = R,                                 # Rename Reps to reps
+    weight = W                              # Rename Weight to weight
+  ) %>%
+  arrange(date, Num, Set) %>%                         # Optional: Arrange rows by date and set
+  select(name, reps, weight, date, everything()) # Reorder columns with the renamed ones first
+# Merge everything into one big dataframe.
+merged_df_libreoffice <- training_log_long %>%
+  left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(health_log, by = c("date" = "Date"))
+merged_df_massive <- massive_db %>%
+  left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(health_log, by = c("date" = "Date"))
+# Bind rows with only common columns
+merged_df <- bind_rows(
+  merged_df_libreoffice %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive)))),
+  merged_df_massive %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive))))
+)
+rm("con", "exercise_df", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
 
 # FIXME all graphs should follow green theme like the page.
+
 #---- Shiny ui ----
 ui <- dashboardPage(
   dashboardHeader(title = "GAINZ"),
@@ -127,11 +167,11 @@ ui <- dashboardPage(
         width = 6, dateInput(
           "date",
           "Date",
-          min = min(training_log$Date),
-          max = max(training_log$Date)
+          min = min(merged_df$date),
+          max = max(merged_df$date)
         )
       ), column(
-        width = 6, selectInput("exercise", "Exercise", choices = unique(training_log$Exercise))
+        width = 6, selectInput("exercise", "Exercise", choices = unique(merged_df$name))
       )),
       fluidRow(
         tags$style(
@@ -144,14 +184,14 @@ ui <- dashboardPage(
     tabItem(
       tabName = "calc",
       fluidRow(selectInput(
-        "calc_exercise", "Exercise", choices = unique(training_log$Exercise)
+        "calc_exercise", "Exercise", choices = unique(merged_df$name)
       )),
       # FIXME step should be customizable based on users own situation and wants.
       fluidRow(numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5)),
       fluidRow(tableOutput("calc_reps"))
     )
   )),
-  skin = "green"
+  skin = "blue"
 )
 
 #---- Shiny server ----
@@ -159,9 +199,9 @@ server <- function(input, output, session) {
   # Filter the exercise choice list based on chosen date
   observe({
     if (length(input$date) != 0) {
-      x <- unique(training_log %>% filter(Date == input$date) %>% select(Exercise) %>% unlist())
+      x <- merged_df %>% filter(date == selected_date) %>% pull(name) %>% unique()
     } else {
-      x <- unique(training_log$Exercise)
+      x <- unique(merged_df$name)
     }
     updateSelectInput(session, "exercise", choices = x)
     updateSelectInput(session, "calc_exercise", choices = x)
@@ -177,11 +217,8 @@ server <- function(input, output, session) {
   })
   
   output$kehakaalPlot <- renderPlotly({
-    # Plot the data using ggplot2
     p <- ggplot(health_log, aes(x = Date)) +
-      geom_point(aes(y = BodyWeight),
-                 color = "grey",
-                 na.rm = TRUE) +
+      geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
       geom_line(aes(y = BodyWeight_MA),
                 color = "black",
                 na.rm = TRUE) +
@@ -193,12 +230,10 @@ server <- function(input, output, session) {
   output$activityBarPlot <- renderPlotly({
     # Create a new column for the week number
     health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
-    
     # Summarize the data to get weekly sums
     weekly_sums <- health_log %>%
       group_by(Week) %>%
       summarise(WeeklySum = sum(ActiveMinutes, na.rm = TRUE))
-    
     # Plot the data using ggplot2
     p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
       geom_bar(stat = "identity", fill = "grey") +
@@ -209,25 +244,34 @@ server <- function(input, output, session) {
   })
   
   output$maxTonnagePlot <- renderPlotly({
-    max_tonnage_data_long <- data.frame()
-    for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
-      max_tonnage_data_long <- rbind(
-        max_tonnage_data_long,
-        calculate_max_tonnage(
-          exercise = input$exercise,
-          tonnage_criteria = tonnage_criteria
-        )
-      )
-    }
+    # Calculate tonnage per set
+    exercise_data <- merged_df %>%
+      filter(name == input$exercise) %>%
+      mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
+      select(date, tonnage)
     
-    p <- ggplot(max_tonnage_data_long,
-                aes(x = Date, y = MaxTonnage, colour = TonnageCriteria)) +
-      geom_line() +
-      geom_point() +
-      scale_color_brewer() +
-      #scale_y_log10() +
-      theme_dark()
-    ggplotly(p)
+    # Generate results for multiple `n` values
+    results <- lapply(1:5, function(n) {
+      calculate_max_tonnage(exercise_data, n) %>%
+        mutate(n_sets = n)
+    }) %>%
+      bind_rows()
+    
+    # Create an interactive plot for multiple values of `n`
+    plot_ly(
+      data = results,
+      x = ~date,
+      y = ~max_tonnage,
+      color = ~as.factor(n_sets), # Use `n_sets` as the grouping variable
+      type = 'scatter',
+      mode = 'lines+markers'
+    ) %>%
+      layout(
+        title = "Max Tonnage Records for 1-5 Sets",
+        xaxis = list(title = "Date"),
+        yaxis = list(title = "Max Tonnage"),
+        legend = list(title = list(text = "Number of Sets"))
+      )
   })
   
   output$calc_reps <- renderTable({
