@@ -20,6 +20,7 @@
 
 # RStudio files
 .Rproj.user/
+*.Rproj
 
 # produced vignettes
 vignettes/*.html
@@ -48,5 +49,7 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
-# Your own exericse log
+# Data sources
 fitness-log.ods
+*.db
+*.csv

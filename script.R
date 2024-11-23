@@ -11,7 +11,8 @@ required_libs <- c(
   "scales",
   "plotly",
   "TTR",
-  "lubridate"
+  "lubridate",
+  "RSQLite"
 )
 # Install missing libraries.
 for (lib in required_libs) {
@@ -63,36 +64,63 @@ calculate_max_tonnage <- function(exercise, tonnage_criteria, window="d", fill_m
     select(Date, TonnageCriteria, MaxTonnage)
 }
 
-#---- Data loading ----
+#---- Parameters ----
+# File paths
+ods_path <- "./fitness-log.ods"
+sqlite_path <- "./massive (1).db"
 
-# Load data from Libreoffice Calc file
-training_log <- read_ods(path = "./fitness-log.ods", sheet = "TrainingLog")
-health_log <- read_ods(path = "./fitness-log.ods", sheet = "HealthLog")
-exercise_df <- read_ods(path = "./fitness-log.ods", sheet = "ExerciseDatabase")
+# Sheet names
+training_log_sheet <- "TrainingLog"
+health_log_sheet <- "HealthLog"
+exercise_db_sheet <- "ExerciseDatabase"
 
-# Andmete korrastamine
-health_log$Date <- as.Date(health_log$Date, "%m/%d/%y")
-training_log$Date <- as.Date(training_log$Date, "%m/%d/%y")
-# If exercise is not body-weight then multiplier is missing, convert these to 0.
-exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier),
-                                            0,
-                                            exercise_df$bwMultiplier)
+# Date formats
+date_format_ods <- "%m/%d/%y"
+date_format_sqlite <- "%Y-%m-%dT%H:%M:%S"
 
-# Greasy hack, et ma näeks numbreid, kui pole kaua aega kaalnunud
-health_log$BodyWeight[nrow(health_log)] <- ifelse(is.na(tail(health_log$BodyWeight, n = 1)),
-                                                  tail(na.trim(health_log$BodyWeight), n = 1),
-                                                  tail(health_log$BodyWeight, n = 1))
-# Use rollapply to calculate the moving average, ignoring NA values
+# Rolling average window size
+rolling_window <- 30
+
+#---- Data Loading ----
+# Load data from LibreOffice Calc file
+training_log <- read_ods(path = ods_path, sheet = training_log_sheet)
+health_log <- read_ods(path = ods_path, sheet = health_log_sheet)
+exercise_df <- read_ods(path = ods_path, sheet = exercise_db_sheet)
+
+# Load data from SQLite database
+con <- dbConnect(SQLite(), sqlite_path)
+massive_db <- dbReadTable(con, "sets")
+dbDisconnect(con)
+
+#---- Data Cleaning ----
+# Convert dates
+health_log$Date <- as.Date(health_log$Date, date_format_ods)
+training_log$Date <- as.Date(training_log$Date, date_format_ods)
+massive_db <- massive_db %>%
+  select(name, reps, weight, created) %>%
+  mutate(created = as.POSIXct(created, format = date_format_sqlite))
+
+# Fix missing bodyweight multipliers
+exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
+
+# Carry last body weight forward to current date
+health_log$BodyWeight[nrow(health_log)] <- ifelse(
+  is.na(tail(health_log$BodyWeight, n = 1)),
+  tail(na.trim(health_log$BodyWeight), n = 1),
+  tail(health_log$BodyWeight, n = 1)
+)
+
+#---- Data Transformations ----
+# Interpolate missing bodyweight data and calculate moving average
 health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
 health_log$BodyWeight_MA <- rollapply(
   health_log$BodyWeight_interpolated,
-  width = 30,
+  width = rolling_window,
   FUN = mean,
   fill = NA,
   align = "right"
 )
-
-# Tekita üks suur juicy dataframe, mis hoomab kõike.
+# Merge everything into one big dataframe.
 merged_df <- training_log %>%
   left_join(exercise_df, by = "Exercise") %>%
   left_join(health_log, by = "Date")
