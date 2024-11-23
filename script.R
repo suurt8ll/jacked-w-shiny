@@ -152,11 +152,9 @@ merged_df <- bind_rows(
   merged_df_libreoffice %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive)))),
   merged_df_massive %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive))))
 )
-rm("con", "exercise_df", "health_log", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
+rm("con", "exercise_df", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
 
-#--- Graphs ----
-
-# Plot the data using ggplot2
+#--- BW Graph ----
 p <- ggplot(health_log, aes(x = Date)) +
   geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
   geom_line(aes(y = BodyWeight_MA),
@@ -166,15 +164,13 @@ p <- ggplot(health_log, aes(x = Date)) +
   theme_minimal()
 ggplotly(p)
 
-
+#--- Weekly Activity Graph ----
 # Create a new column for the week number
 health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
-
 # Summarize the data to get weekly sums
 weekly_sums <- health_log %>%
   group_by(Week) %>%
   summarise(WeeklySum = sum(ActiveMinutes, na.rm = TRUE))
-
 # Plot the data using ggplot2
 p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
   geom_bar(stat = "identity", fill = "grey") +
@@ -183,73 +179,78 @@ p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 ggplotly(p)
 
-# Rough logic for the dynamic drop-down menu
-date <- as.Date("2024-07-04")
-if (length(date) != 0) {
+#--- Tonnage Graph w/ drop-down ----
+
+# Logic for the dynamic drop-down menu, filtered based on date.
+selected_date <- as.Date("2024-11-23")
+if (!is.null(selected_date)) {
   # Limit choices to the given date's exercises.
-  exercise_list <- training_log %>% filter(Date == date) %>% select(Exercise)
-  exercise_list <- unique(exercise_list[["Exercise"]])
+  exercise_list <- merged_df %>% filter(date == selected_date) %>% pull(name) %>% unique()
 } else {
   # Whole exercise list gets used if no date is chosen.
-  exercise_list <- unique(training_log$Exercise)
+  exercise_list <- unique(merged_df$name)
 }
 
-# This will plot a graph of tonnage records
-exercise <- "Pull-up"
-# max_tonnage_data_long <- data.frame()
-# for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
-#   max_tonnage_data_long <- rbind(
-#     max_tonnage_data_long,
-#     calculate_max_tonnage(exercise = exercise, tonnage_criteria = tonnage_criteria)
-#   )
-# }
+# Function to calculate max tonnage for `n` sets
+calculate_max_tonnage <- function(data, n) {
+  data %>%
+    group_by(date) %>%
+    summarise(
+      max_tonnage = if (n > n()) NA else max(apply(combn(tonnage, n), 2, sum, na.rm = TRUE)),
+      .groups = "drop"
+    ) %>%
+    filter(!is.na(max_tonnage)) # Exclude dates with fewer than `n` sets
+}
 
-#TODO Implement the ability to choose a window length (daily, weekly, monthly, yearly).
-#TODO Boolean for telling the function if it should fill in the missing values or not.
-selected_window = "w"
-date_format <- ifelse(selected_window == "w", "%G-W%V", "%y-%m-%d")
-# Select the exercise and calculate tonnage for each set.
+# Select the exercise and calculate tonnage per set
+selected_exercise <- "Chin-up"
 exercise_data <- merged_df %>%
-  filter(Exercise == exercise) %>%
-  mutate(
-    ISOWeek = format(Date, date_format),
-    T1 = R1 * (isBW * (bwMultiplier * BodyWeight_MA) + W1),
-    T2 = R2 * (isBW * (bwMultiplier * BodyWeight_MA) + W2),
-    T3 = R3 * (isBW * (bwMultiplier * BodyWeight_MA) + W3),
-    T4 = R4 * (isBW * (bwMultiplier * BodyWeight_MA) + W4),
-    T5 = R5 * (isBW * (bwMultiplier * BodyWeight_MA) + W5),
-  ) %>%
-  select(Date, ISOWeek, Exercise, T1, T2, T3, T4, T5)
-# Calculate total tonnage for the session, needed for choosing the best session in the future.
-exercise_data$SUM_T <- rowSums(exercise_data[, c("T1", "T2", "T3", "T4", "T5")], na.rm = TRUE)
+  filter(name == selected_exercise) %>%
+  mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
+  select(date, tonnage)
 
-# Determine the maximum tonnage for each date dynamically.
-tonnage_criteria = "max1"
-max_tonnage_data <- exercise_data %>%
-  rowwise() %>%
-  mutate(TonnageCriteria = tonnage_criteria, MaxTonnage = {
-    sets <- c(T1, T2, T3, T4, T5)
-    # Removes the "max" part of the string and converts to numeric.
-    criteria <- as.numeric(gsub("max", "", tonnage_criteria))
-    
-    # Filter out NA values and check the number of valid sets
-    valid_sets <- sets[!is.na(sets)]
-    if (length(valid_sets) < criteria) {
-      NA
-    } else {
-      if (criteria == 1) {
-        max(valid_sets, na.rm = TRUE)
-      } else {
-        max(apply(combn(valid_sets, criteria), 2, sum, na.rm = TRUE), na.rm = TRUE)
-      }
-    }
-  }) %>%
-  ungroup() %>%
-  filter(!is.na(MaxTonnage)) %>%
-  select(Date, TonnageCriteria, MaxTonnage)
+# Number of sets to analyze
+n_sets <- 3 # Example: User wants max tonnage for 2 sets
 
+# Calculate max tonnage for the given number of sets
+max_tonnage_data <- calculate_max_tonnage(exercise_data, n_sets)
+
+# Create the plot
+ggplot(max_tonnage_data, aes(x = date, y = max_tonnage)) +
+  geom_line(color = "blue", linewidth = 1) +
+  geom_point(color = "red", size = 2) +
+  labs(
+    title = paste("Max Tonnage Records for", n_sets, "Sets"),
+    x = "Date",
+    y = "Max Tonnage"
+  ) +
+  theme_minimal()
+
+# Generate results for multiple `n` values
+results <- lapply(1:5, function(n) {
+  calculate_max_tonnage(exercise_data, n) %>%
+    mutate(n_sets = n)
+}) %>%
+  bind_rows()
+
+# Create an interactive plot for multiple values of `n`
+plot_ly(
+  data = results,
+  x = ~date,
+  y = ~max_tonnage,
+  color = ~as.factor(n_sets), # Use `n_sets` as the grouping variable
+  type = 'scatter',
+  mode = 'lines+markers'
+) %>%
+  layout(
+    title = "Max Tonnage Records for 1-5 Sets",
+    xaxis = list(title = "Date"),
+    yaxis = list(title = "Max Tonnage"),
+    legend = list(title = list(text = "Number of Sets"))
+  )
+
+#--- EMA Graphs ----
 ## Following is largely generated by llama-3.1-405b-instruct-fp8.
-
 # Convert Date column to a date object
 exercise_data$Date <- as.Date(exercise_data$Date)
 # Create a sequence of dates from the minimum to maximum date
