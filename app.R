@@ -128,7 +128,7 @@ merged_df <- bind_rows(
   merged_df_libreoffice %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive)))),
   merged_df_massive %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive))))
 )
-rm("con", "exercise_df", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
+rm("con", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
 
 # FIXME all graphs should follow green theme like the page.
 
@@ -199,7 +199,7 @@ server <- function(input, output, session) {
   # Filter the exercise choice list based on chosen date
   observe({
     if (length(input$date) != 0) {
-      x <- merged_df %>% filter(date == selected_date) %>% pull(name) %>% unique()
+      x <- merged_df %>% filter(date == input$date) %>% pull(name) %>% unique()
     } else {
       x <- unique(merged_df$name)
     }
@@ -276,21 +276,22 @@ server <- function(input, output, session) {
   
   output$calc_reps <- renderTable({
     # TODO this shares alot with the maxTonnagePlot logic, merge them somehow?
-    max_tonnage_data_long <- data.frame()
-    for (tonnage_criteria in c("max1", "max2", "max3", "max4", "max5")) {
-      max_tonnage_data_long <- rbind(
-        max_tonnage_data_long,
-        calculate_max_tonnage(
-          exercise = input$calc_exercise,
-          tonnage_criteria = tonnage_criteria
-        )
-      )
-    }
-    max_tonnage_data_long %>%
-      group_by(TonnageCriteria) %>%
+    
+    exercise_data <- merged_df %>%
+      filter(name == input$calc_exercise) %>%
+      mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
+      select(date, tonnage)
+    
+    # Generate results for multiple `n` values
+    results <- lapply(1:5, function(n) {
+      calculate_max_tonnage(exercise_data, n) %>%
+        mutate(n_sets = n)
+    }) %>%
+      bind_rows() %>%
+      group_by(n_sets) %>%
       summarise(
-        maxTonnage = max(MaxTonnage),
-        lastTonnage = tail(MaxTonnage, 1)
+        maxTonnage = max(max_tonnage),
+        lastTonnage = tail(max_tonnage, 1)
       ) %>%
       mutate(repsPR = maxTonnage / (input$calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] * tail(merged_df$BodyWeight_MA, 1)),
              repsBeatPrev = lastTonnage / (input$calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] * tail(merged_df$BodyWeight_MA, 1))) %>%
