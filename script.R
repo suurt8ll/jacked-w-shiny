@@ -1,7 +1,5 @@
 #---- Packages and Functions ----
 required_libs <- c(
-  "shiny",
-  "shinydashboard",
   "dplyr",
   "tidyr",
   "stringi",
@@ -36,6 +34,7 @@ calculate_max_tonnage <- function(data, n) {
 # File paths
 sets_csv_path <- "./sets.csv"
 bw_csv_path <- "./bw.csv"
+exercises_csv_path <- "./exercises.csv"
 
 # Date format
 date_format <- "%Y-%m-%dT%H:%M:%S"
@@ -48,10 +47,12 @@ rolling_window <- 5
 # Load data from .csv file
 sets_df <- read_csv(sets_csv_path)
 bw_df <- read_csv(bw_csv_path)
+exercises_df <- read_csv(exercises_csv_path)
 
 #---- Data Cleaning ----
 sets_df <- sets_df %>%
   mutate(
+    name = tolower(name),
     created = as.POSIXct(created, format = date_format),
     date = as.Date(created)
   )
@@ -60,8 +61,13 @@ bw_df <- bw_df %>%
     created = as.POSIXct(created, format = date_format),
     date = as.Date(created)
   )
+exercises_df <- exercises_df %>%
+  mutate(
+    Exercise = tolower(Exercise),
+    bwMultiplier = as.numeric(gsub("%", "", bwMultiplier)) / 100
+  )
 # Fix missing bodyweight multipliers
-#exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
+exercises_df$bwMultiplier <- ifelse(is.na(exercises_df$bwMultiplier), 0, exercises_df$bwMultiplier)
 
 #---- Data Transformations ----
 # Carry forward the most recent weight
@@ -91,14 +97,14 @@ bw_df$bw_ma <- rollapply(
 )
 # Merge everything into one big dataframe.
 merged_df <- sets_df %>%
-  #left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(exercises_df, by = c("name" = "Exercise")) %>%
   left_join(bw_df, by = "date") %>%
   select(-created.y) %>%
   rename(created = created.x)
 
 #---- BW Graph ----
-p <- ggplot(health_log, aes(x = Date)) +
-  geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
+p <- ggplot(bw_df, aes(x = date)) +
+  geom_point(aes(y = bw), color = "grey", na.rm = TRUE) +
   geom_line(aes(y = bw_ma),
             color = "black",
             na.rm = TRUE) +
@@ -107,24 +113,25 @@ p <- ggplot(health_log, aes(x = Date)) +
 ggplotly(p)
 
 #---- Weekly Activity Graph ----
-# Create a new column for the week number
-health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
-# Summarize the data to get weekly sums
-weekly_sums <- health_log %>%
-  group_by(Week) %>%
-  summarise(WeeklySum = sum(ActiveMinutes, na.rm = TRUE))
-# Plot the data using ggplot2
-p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
-  geom_bar(stat = "identity", fill = "grey") +
-  labs(title = "Weekly Active Minutes", x = "Week", y = "Total Active Minutes") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-ggplotly(p)
+# # FIXME Needs whole new logic that calculates the time from set timestamps.
+# # Create a new column for the week number
+# health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
+# # Summarize the data to get weekly sums
+# weekly_sums <- health_log %>%
+#   group_by(Week) %>%
+#   summarise(WeeklySum = sum(ActiveMinutes, na.rm = TRUE))
+# # Plot the data using ggplot2
+# p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
+#   geom_bar(stat = "identity", fill = "grey") +
+#   labs(title = "Weekly Active Minutes", x = "Week", y = "Total Active Minutes") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 90, hjust = 1))
+# ggplotly(p)
 
 #---- Tonnage Graph w/ drop-down ----
 
 # Logic for the dynamic drop-down menu, filtered based on date.
-selected_date <- as.Date("2024-11-23")
+selected_date <- as.Date(current_time)
 if (!is.null(selected_date)) {
   # Limit choices to the given date's exercises.
   exercise_list <- merged_df %>% filter(date == selected_date) %>% pull(name) %>% unique()
@@ -134,7 +141,7 @@ if (!is.null(selected_date)) {
 }
 
 # Select the exercise and calculate tonnage per set
-selected_exercise <- "Chin-up"
+selected_exercise <- "pull-up"
 exercise_data <- merged_df %>%
   filter(name == selected_exercise) %>%
   mutate(tonnage = reps * (isBW * (bwMultiplier * bw_ma) + weight)) %>%
@@ -224,7 +231,7 @@ max_tonnage_data_long %>%
     maxTonnage = max(MaxTonnage),
     lastTonnage = tail(MaxTonnage, 1)
   ) %>%
-  mutate(repsPR = maxTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$bw_ma, 1)),
-          repsBeatPrev = lastTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$bw_ma, 1))) %>%
+  mutate(repsPR = maxTonnage / (calc_weight + exercises_df$bwMultiplier[exercises_df$Exercise == exercise] * tail(merged_df$bw_ma, 1)),
+          repsBeatPrev = lastTonnage / (calc_weight + exercises_df$bwMultiplier[exercises_df$Exercise == exercise] * tail(merged_df$bw_ma, 1))) %>%
   mutate(repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
           repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))))
