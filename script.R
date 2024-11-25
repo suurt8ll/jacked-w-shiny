@@ -4,15 +4,12 @@ required_libs <- c(
   "shinydashboard",
   "dplyr",
   "tidyr",
-  "readODS",
   "stringi",
   "zoo",
   "ggplot2",
   "scales",
   "plotly",
-  "TTR",
-  "lubridate",
-  "RSQLite"
+  "readr"
 )
 # Install missing libraries.
 for (lib in required_libs) {
@@ -37,13 +34,8 @@ calculate_max_tonnage <- function(data, n) {
 
 #---- Parameters ----
 # File paths
-ods_path <- "./fitness-log.ods"
-sqlite_path <- "./massive (1).db"
-
-# Sheet names
-training_log_sheet <- "TrainingLog"
-health_log_sheet <- "HealthLog"
-exercise_db_sheet <- "ExerciseDatabase"
+sets_csv_path <- "./sets.csv"
+bw_csv_path <- "./bw.csv"
 
 # Date formats
 date_format_ods <- "%m/%d/%y"
@@ -54,24 +46,18 @@ rolling_window <- 30
 
 #---- Data Loading ----
 
-# Load data from LibreOffice Calc file
-training_log <- read_ods(path = ods_path, sheet = training_log_sheet)
-health_log <- read_ods(path = ods_path, sheet = health_log_sheet)
-exercise_df <- read_ods(path = ods_path, sheet = exercise_db_sheet)
-
-# Load data from SQLite database
-con <- dbConnect(SQLite(), sqlite_path)
-massive_db <- dbReadTable(con, "sets")
-dbDisconnect(con)
+# Load data from .csv file
+sets_df <- read_csv(sets_csv_path)
+bw_df <- read_csv(bw_csv_path)
 
 #---- Data Cleaning ----
-# Convert dates
-health_log$Date <- as.Date(health_log$Date, date_format_ods)
-training_log$Date <- as.Date(training_log$Date, date_format_ods)
-massive_db <- massive_db %>%
-  select(name, reps, weight, created) %>%
+sets_df <- sets_df %>%
   mutate(
-    name = trimws(name),
+    created = as.POSIXct(created, format = date_format_sqlite),
+    date = as.Date(created)
+  )
+bw_df <- bw_df %>%
+  mutate(
     created = as.POSIXct(created, format = date_format_sqlite),
     date = as.Date(created)
   )
