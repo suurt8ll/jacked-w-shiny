@@ -128,9 +128,10 @@ merged_df <- bind_rows(
   merged_df_libreoffice %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive)))),
   merged_df_massive %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive))))
 )
+# Remove rows where weight or reps is missing
+merged_df <- merged_df %>%
+  filter(!is.na(weight) & !is.na(reps))
 rm("con", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
-
-# FIXME all graphs should follow green theme like the page.
 
 #---- Shiny ui ----
 ui <- dashboardPage(
