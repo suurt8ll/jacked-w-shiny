@@ -41,7 +41,7 @@ bw_csv_path <- "./bw.csv"
 date_format <- "%Y-%m-%dT%H:%M:%S"
 
 # Rolling average window size
-rolling_window <- 30
+rolling_window <- 5
 
 #---- Data Loading ----
 
@@ -70,56 +70,36 @@ if (!as.Date(current_time) %in% bw_df$date) {
   bw_df <- bw_df %>%
     arrange(date) %>%
     bind_rows(tibble(
-      weight = tail(.$weight, 1),
+      bw = tail(.$bw, 1),
       created = current_time,
       date = as.Date(current_time)
     ))
 }
-
-# FIXME adapt this to the new .csv logic!
-# Interpolate missing bodyweight data and calculate moving average
-health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
-health_log$BodyWeight_MA <- rollapply(
-  health_log$BodyWeight_interpolated,
+# Fill missing dates linearly.
+all_dates <- seq(min(bw_df$date), max(bw_df$date), by = "day")
+bw_df <- bw_df %>%
+  complete(date = all_dates) %>%
+  arrange(date) %>%
+  mutate(bw = zoo::na.approx(bw, na.rm = FALSE))
+# Calculate simple moving average for bw.
+bw_df$bw_ma <- rollapply(
+  bw_df$bw,
   width = rolling_window,
   FUN = mean,
   fill = NA,
   align = "right"
 )
-# Pivot longer: Combine R1, R2,... and W1, W2,... into rows
-training_log_long <- training_log %>%
-  pivot_longer(
-    cols = starts_with("R") | starts_with("W"),   # Columns to pivot
-    names_to = c(".value", "Set"),               # Extract values (R/W) and Set number
-    names_pattern = "([RW])(\\d+)"               # Regex to split column names into R/W and set number
-  ) %>%
-  filter(!(is.na(R) & is.na(W))) %>%      # Drop rows where both Reps and Weight are NA
-  rename(
-    date = Date,                              # Rename Date to created
-    name = Exercise,                             # Rename Exercise to name
-    reps = R,                                 # Rename Reps to reps
-    weight = W                              # Rename Weight to weight
-  ) %>%
-  arrange(date, Num, Set) %>%                         # Optional: Arrange rows by date and set
-  select(name, reps, weight, date, everything()) # Reorder columns with the renamed ones first
 # Merge everything into one big dataframe.
-merged_df_libreoffice <- training_log_long %>%
-  left_join(exercise_df, by = c("name" = "Exercise")) %>%
-  left_join(health_log, by = c("date" = "Date"))
-merged_df_massive <- massive_db %>%
-  left_join(exercise_df, by = c("name" = "Exercise")) %>%
-  left_join(health_log, by = c("date" = "Date"))
-# Bind rows with only common columns
-merged_df <- bind_rows(
-  merged_df_libreoffice %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive)))),
-  merged_df_massive %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive))))
-)
-rm("con", "exercise_df", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
+merged_df <- sets_df %>%
+  #left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(bw_df, by = "date") %>%
+  select(-created.y) %>%
+  rename(created = created.x)
 
 #---- BW Graph ----
 p <- ggplot(health_log, aes(x = Date)) +
   geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
-  geom_line(aes(y = BodyWeight_MA),
+  geom_line(aes(y = bw_ma),
             color = "black",
             na.rm = TRUE) +
   labs(title = "BodyWeight with 30-Day Moving Average", x = "Date", y = "BodyWeight") +
@@ -157,7 +137,7 @@ if (!is.null(selected_date)) {
 selected_exercise <- "Chin-up"
 exercise_data <- merged_df %>%
   filter(name == selected_exercise) %>%
-  mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
+  mutate(tonnage = reps * (isBW * (bwMultiplier * bw_ma) + weight)) %>%
   select(date, tonnage)
 
 # Generate results for multiple `n` values
@@ -244,7 +224,7 @@ max_tonnage_data_long %>%
     maxTonnage = max(MaxTonnage),
     lastTonnage = tail(MaxTonnage, 1)
   ) %>%
-  mutate(repsPR = maxTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$BodyWeight_MA, 1)),
-          repsBeatPrev = lastTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$BodyWeight_MA, 1))) %>%
+  mutate(repsPR = maxTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$bw_ma, 1)),
+          repsBeatPrev = lastTonnage / (calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == exercise] * tail(merged_df$bw_ma, 1))) %>%
   mutate(repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
           repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))))
