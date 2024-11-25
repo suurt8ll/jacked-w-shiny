@@ -50,6 +50,6 @@ po/*~
 rsconnect/
 
 # Data sources
-fitness-log.ods
+*.ods*
 *.db
 *.csv
