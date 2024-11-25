@@ -37,9 +37,8 @@ calculate_max_tonnage <- function(data, n) {
 sets_csv_path <- "./sets.csv"
 bw_csv_path <- "./bw.csv"
 
-# Date formats
-date_format_ods <- "%m/%d/%y"
-date_format_sqlite <- "%Y-%m-%dT%H:%M:%S"
+# Date format
+date_format <- "%Y-%m-%dT%H:%M:%S"
 
 # Rolling average window size
 rolling_window <- 30
@@ -53,26 +52,31 @@ bw_df <- read_csv(bw_csv_path)
 #---- Data Cleaning ----
 sets_df <- sets_df %>%
   mutate(
-    created = as.POSIXct(created, format = date_format_sqlite),
+    created = as.POSIXct(created, format = date_format),
     date = as.Date(created)
   )
 bw_df <- bw_df %>%
   mutate(
-    created = as.POSIXct(created, format = date_format_sqlite),
+    created = as.POSIXct(created, format = date_format),
     date = as.Date(created)
   )
-
 # Fix missing bodyweight multipliers
-exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
-
-# Carry last body weight forward to current date
-health_log$BodyWeight[nrow(health_log)] <- ifelse(
-  is.na(tail(health_log$BodyWeight, n = 1)),
-  tail(na.trim(health_log$BodyWeight), n = 1),
-  tail(health_log$BodyWeight, n = 1)
-)
+#exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
 
 #---- Data Transformations ----
+# Carry forward the most recent weight
+current_time <- Sys.time()
+if (!as.Date(current_time) %in% bw_df$date) {
+  bw_df <- bw_df %>%
+    arrange(date) %>%
+    bind_rows(tibble(
+      weight = tail(.$weight, 1),
+      created = current_time,
+      date = as.Date(current_time)
+    ))
+}
+
+# FIXME adapt this to the new .csv logic!
 # Interpolate missing bodyweight data and calculate moving average
 health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
 health_log$BodyWeight_MA <- rollapply(
