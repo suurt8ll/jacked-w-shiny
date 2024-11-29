@@ -10,7 +10,9 @@ required_libs <- c(
   "ggplot2",
   "scales",
   "plotly",
-  "RSQLite"
+  "RSQLite",
+  "lubridate",
+  "DT"
 )
 # Install missing libraries.
 for (lib in required_libs) {
@@ -145,7 +147,8 @@ ui <- dashboardPage(
     ),
     menuItem("Activity", tabName = "activity", icon = icon("bar-chart")),
     menuItem("Tonnage", tabName = "maxtonnage", icon = icon("bar-chart")),
-    menuItem("Calculator", tabName = "calc", icon = icon("bar-chart"))
+    menuItem("Calculator", tabName = "calc", icon = icon("bar-chart")),
+    menuItem("Raw Data", tabName = "rawdata", icon = icon("table"))
   )),
   
   dashboardBody(tabItems(
@@ -190,6 +193,12 @@ ui <- dashboardPage(
       # FIXME step should be customizable based on users own situation and wants.
       fluidRow(numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5)),
       fluidRow(tableOutput("calc_reps"))
+    ),
+    tabItem(
+      tabName = "rawdata",
+      fluidRow(
+        DT::dataTableOutput("rawDataTable")
+      )
     )
   )),
   skin = "blue"
@@ -300,6 +309,14 @@ server <- function(input, output, session) {
              repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))),
              maxTonnage = as.integer(round(maxTonnage)),
              lastTonnage = as.integer(round(lastTonnage)))
+  })
+  
+  output$rawDataTable <- DT::renderDataTable({
+    last_three_months <- Sys.Date() %m-% months(3)
+    filtered_data <- merged_df %>%
+      filter(date >= last_three_months) %>%
+      select(date, name, reps, weight, BodyWeight, BodyWeight_MA)
+    DT::datatable(filtered_data)
   })
 }
 
