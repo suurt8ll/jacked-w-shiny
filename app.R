@@ -192,7 +192,7 @@ ui <- dashboardPage(
       )),
       # FIXME step should be customizable based on users own situation and wants.
       fluidRow(numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5)),
-      fluidRow(tableOutput("calc_reps"))
+      fluidRow(DT::dataTableOutput("calc_reps"))
     ),
     tabItem(
       tabName = "rawdata",
@@ -284,9 +284,8 @@ server <- function(input, output, session) {
       )
   })
   
-  output$calc_reps <- renderTable({
-    # TODO this shares alot with the maxTonnagePlot logic, merge them somehow?
-    
+  output$calc_reps <- DT::renderDataTable({
+    # Existing calculation logic remains the same
     exercise_data <- merged_df %>%
       filter(name == input$calc_exercise) %>%
       mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
@@ -303,12 +302,31 @@ server <- function(input, output, session) {
         maxTonnage = max(max_tonnage),
         lastTonnage = tail(max_tonnage, 1)
       ) %>%
-      mutate(repsPR = maxTonnage / (input$calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] * tail(merged_df$BodyWeight_MA, 1)),
-             repsBeatPrev = lastTonnage / (input$calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] * tail(merged_df$BodyWeight_MA, 1))) %>%
-      mutate(repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
-             repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))),
-             maxTonnage = as.integer(round(maxTonnage)),
-             lastTonnage = as.integer(round(lastTonnage)))
+      mutate(
+        adjusted_weight = input$calc_weight + exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] * tail(merged_df$BodyWeight_MA, 1),
+        repsPR = maxTonnage / adjusted_weight,
+        repsBeatPrev = lastTonnage / adjusted_weight
+      ) %>%
+      mutate(
+        repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
+        repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))),
+        maxTonnage = as.integer(round(maxTonnage)),
+        lastTonnage = as.integer(round(lastTonnage))
+      ) %>%
+      select(
+        `Number of Sets` = n_sets,
+        `Max Tonnage` = maxTonnage,
+        `Last Tonnage` = lastTonnage,
+        `Reps to Beat PR` = repsPR,
+        `Reps to Beat Last` = repsBeatPrev
+      )
+    
+    # Return the data frame as a DT table
+    DT::datatable(
+      results,
+      options = list(pageLength = 5),
+      rownames = FALSE
+    )
   })
   
   output$rawDataTable <- DT::renderDataTable({
