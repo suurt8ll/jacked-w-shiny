@@ -178,72 +178,79 @@ ui <- dashboardPage(
     menuItem("Raw Data", tabName = "rawdata", icon = icon("table"))
   )),
   
-  dashboardBody(tabItems(
-    tabItem(
-      tabName = "kaal",
-      tags$style(type = "text/css", "#kehakaalPlot {height: calc(100vh - 160px) !important;}"),
-      plotlyOutput("kehakaalPlot", height = "100%", width = "100%")
+  dashboardBody(
+    tags$head(
+      tags$link(rel = "icon", type = "image/png", sizes = "32x32", href = "favicon-32x32.png"),
+      tags$link(rel = "icon", type = "image/png", sizes = "16x16", href = "favicon-16x16.png"),
+      tags$link(rel = "shortcut icon", href = "favicon.ico")
     ),
-    tabItem(
-      tabName = "activity",
-      fluidRow(
-        selectInput(
-          "activity_date_range",
-          "Select Date Range:",
-          choices = c(
-            "Past 1 Month" = "1m",
-            "Past 3 Months" = "3m",
-            "Past 6 Months" = "6m",
-            "Past 1 Year" = "1y",
-            "Past 3 Years" = "3y",
-            "Past 5 Years" = "5y",
-            "All Time" = "all"
-          ),
-          selected = "3m"  # Default selection set to "Past 3 Months"
-        )
+    tabItems(
+      tabItem(
+        tabName = "kaal",
+        tags$style(type = "text/css", "#kehakaalPlot {height: calc(100vh - 160px) !important;}"),
+        plotlyOutput("kehakaalPlot", height = "100%", width = "100%")
       ),
-      tags$style(
-        type = "text/css",
-        "#activityBarPlot {height: calc(100vh - 160px) !important;}"
-      ),
-      plotlyOutput("activityBarPlot", height = "100%", width = "100%")
-    ),
-    tabItem(
-      tabName = "maxtonnage",
-      fluidRow(column(
-        width = 6, dateInput(
-          "date",
-          "Date",
-          min = min(merged_df$date),
-          max = max(merged_df$date)
-        )
-      ), column(
-        width = 6, selectInput("exercise", "Exercise", choices = unique(merged_df$name))
-      )),
-      fluidRow(
+      tabItem(
+        tabName = "activity",
+        fluidRow(
+          selectInput(
+            "activity_date_range",
+            "Select Date Range:",
+            choices = c(
+              "Past 1 Month" = "1m",
+              "Past 3 Months" = "3m",
+              "Past 6 Months" = "6m",
+              "Past 1 Year" = "1y",
+              "Past 3 Years" = "3y",
+              "Past 5 Years" = "5y",
+              "All Time" = "all"
+            ),
+            selected = "3m"  # Default selection set to "Past 3 Months"
+          )
+        ),
         tags$style(
           type = "text/css",
-          "#maxTonnagePlot {height: calc(100vh - 160px) !important;}"
+          "#activityBarPlot {height: calc(100vh - 160px) !important;}"
         ),
-        plotlyOutput("maxTonnagePlot", height = "100%", width = "100%")
-      )
-    ),
-    tabItem(
-      tabName = "calc",
-      fluidRow(selectInput(
-        "calc_exercise", "Exercise", choices = unique(merged_df$name)
-      )),
-      # FIXME step should be customizable based on users own situation and wants.
-      fluidRow(numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5)),
-      fluidRow(DT::dataTableOutput("calc_reps"))
-    ),
-    tabItem(
-      tabName = "rawdata",
-      fluidRow(
-        DT::dataTableOutput("rawDataTable")
+        plotlyOutput("activityBarPlot", height = "100%", width = "100%")
+      ),
+      tabItem(
+        tabName = "maxtonnage",
+        fluidRow(column(
+          width = 6, dateInput(
+            "date",
+            "Date",
+            min = min(merged_df$date),
+            max = max(merged_df$date)
+          )
+        ), column(
+          width = 6, selectInput("exercise", "Exercise", choices = unique(merged_df$name))
+        )),
+        fluidRow(
+          tags$style(
+            type = "text/css",
+            "#maxTonnagePlot {height: calc(100vh - 160px) !important;}"
+          ),
+          plotlyOutput("maxTonnagePlot", height = "100%", width = "100%")
+        )
+      ),
+      tabItem(
+        tabName = "calc",
+        fluidRow(selectInput(
+          "calc_exercise", "Exercise", choices = unique(merged_df$name)
+        )),
+        # FIXME step should be customizable based on users own situation and wants.
+        fluidRow(numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5)),
+        fluidRow(DT::dataTableOutput("calc_reps"))
+      ),
+      tabItem(
+        tabName = "rawdata",
+        fluidRow(
+          DT::dataTableOutput("rawDataTable")
+        )
       )
     )
-  )),
+  ),
   skin = "blue"
 )
 
