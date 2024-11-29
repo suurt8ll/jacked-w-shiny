@@ -159,9 +159,25 @@ ui <- dashboardPage(
     ),
     tabItem(
       tabName = "activity",
+      fluidRow(
+        selectInput(
+          "activity_date_range",
+          "Select Date Range:",
+          choices = c(
+            "Past 1 Month" = "1m",
+            "Past 3 Months" = "3m",
+            "Past 6 Months" = "6m",
+            "Past 1 Year" = "1y",
+            "Past 3 Years" = "3y",
+            "Past 5 Years" = "5y",
+            "All Time" = "all"
+          ),
+          selected = "3m"  # Default selection set to "Past 3 Months"
+        )
+      ),
       tags$style(
         type = "text/css",
-        "#activityBarPlot {height: calc(100vh - 80px) !important;}"
+        "#activityBarPlot {height: calc(100vh - 160px) !important;}"
       ),
       plotlyOutput("activityBarPlot", height = "100%", width = "100%")
     ),
@@ -238,18 +254,41 @@ server <- function(input, output, session) {
   })
   
   output$activityBarPlot <- renderPlotly({
+    # Ensure lubridate is loaded
+    library(lubridate)
+    
+    # Determine the start date based on selected range
+    end_date <- Sys.Date()
+    start_date <- switch(input$activity_date_range,
+                         "1m" = end_date %m-% months(1),
+                         "3m" = end_date %m-% months(3),
+                         "6m" = end_date %m-% months(6),
+                         "1y" = end_date %m-% years(1),
+                         "3y" = end_date %m-% years(3),
+                         "5y" = end_date %m-% years(5),
+                         "all" = min(health_log$Date, na.rm = TRUE),
+                         end_date %m-% months(3)  # Default fallback is now "Past 3 Months"
+    )
+    
+    # Filter health_log based on date range
+    filtered_health_log <- health_log %>%
+      filter(Date >= start_date & Date <= end_date)
+    
     # Create a new column for the week number
-    health_log$Week <- format(as.Date(health_log$Date), "%Y-%U")
+    filtered_health_log$Week <- format(as.Date(filtered_health_log$Date), "%Y-%U")
+    
     # Summarize the data to get weekly sums
-    weekly_sums <- health_log %>%
+    weekly_sums <- filtered_health_log %>%
       group_by(Week) %>%
       summarise(WeeklySum = sum(ActiveMinutes, na.rm = TRUE))
+    
     # Plot the data using ggplot2
     p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
       geom_bar(stat = "identity", fill = "grey") +
       labs(title = "Weekly Active Minutes", x = "Week", y = "Total Active Minutes") +
       theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, hjust = 1))
+    
     ggplotly(p)
   })
   
