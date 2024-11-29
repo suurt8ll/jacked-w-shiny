@@ -400,6 +400,8 @@ server <- function(input, output, session) {
     filtered_data <- merged_df %>%
       filter(date >= last_three_months) %>%
       select(date, name, reps, weight, BodyWeight, BodyWeight_MA)
+    # Reverse the order of the rows to flip the data frame
+    filtered_data <- filtered_data[nrow(filtered_data):1, ]
     DT::datatable(filtered_data)
   })
 }
