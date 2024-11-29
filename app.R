@@ -38,7 +38,34 @@ calculate_max_tonnage <- function(data, n) {
 #---- Parameters ----
 # File paths
 ods_path <- "./fitness-log.ods"
-sqlite_path <- "./massive (1).db"
+
+# Automatically find the latest massive*.db file
+db_files <- list.files(pattern = "^massive( \\(\\d+\\))?\\.db$")
+
+# Function to extract version numbers from filenames
+extract_version <- function(filename) {
+  if (filename == "massive.db") {
+    return(0)
+  } else {
+    matches <- regmatches(filename, regexec("\\((\\d+)\\)", filename))
+    if (length(matches[[1]]) > 1) {
+      return(as.numeric(matches[[1]][2]))
+    } else {
+      return(0)
+    }
+  }
+}
+
+# Apply the function to each filename to get versions
+versions <- sapply(db_files, extract_version)
+
+# Check if any files were found
+if (length(versions) == 0) {
+  stop("No massive*.db files found in the current directory.")
+}
+
+# Select the file with the highest version number
+sqlite_path <- db_files[which.max(versions)]
 
 # Sheet names
 training_log_sheet <- "TrainingLog"
