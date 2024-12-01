@@ -110,6 +110,13 @@ exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_
 # Merge bodyweight data from both sources
 health_log <- bind_rows(health_log, massive_db_bw)
 
+# Create a sequence of all dates in the range
+all_dates <- seq(from = min(health_log$Date), to = Sys.Date(), by = "day")
+
+# Create a new dataframe with all dates and merge it with health_log
+health_log <- data.frame(Date = all_dates) %>%
+  left_join(health_log, by = "Date")
+
 # Carry last body weight forward to current date
 health_log$BodyWeight[nrow(health_log)] <- ifelse(
   is.na(tail(health_log$BodyWeight, n = 1)),
