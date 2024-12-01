@@ -38,7 +38,29 @@ calculate_max_tonnage <- function(data, n) {
 #---- Parameters ----
 # File paths
 ods_path <- "./fitness-log.ods"
-sqlite_path <- "./massive (1).db"
+# Automatically find the latest massive*.db file
+db_files <- list.files(pattern = "^massive( \\(\\d+\\))?\\.db$")
+# Function to extract version numbers from filenames
+extract_version <- function(filename) {
+  if (filename == "massive.db") {
+    return(0)
+  } else {
+    matches <- regmatches(filename, regexec("\\((\\d+)\\)", filename))
+    if (length(matches[[1]]) > 1) {
+      return(as.numeric(matches[[1]][2]))
+    } else {
+      return(0)
+    }
+  }
+}
+# Apply the function to each filename to get versions
+versions <- sapply(db_files, extract_version)
+# Check if any files were found
+if (length(versions) == 0) {
+  stop("No massive*.db files found in the current directory.")
+}
+# Select the file with the highest version number
+sqlite_path <- db_files[which.max(versions)]
 
 # Sheet names
 training_log_sheet <- "TrainingLog"
@@ -61,7 +83,8 @@ exercise_df <- read_ods(path = ods_path, sheet = exercise_db_sheet)
 
 # Load data from SQLite database
 con <- dbConnect(SQLite(), sqlite_path)
-massive_db <- dbReadTable(con, "sets")
+massive_db <- dbReadTable(con, "sets") %>% select(name, reps, weight, created)
+massive_db_bw <- dbReadTable(con, "weights") %>% select(created, BodyWeight = value)
 dbDisconnect(con)
 
 #---- Data Cleaning ----
@@ -69,15 +92,23 @@ dbDisconnect(con)
 health_log$Date <- as.Date(health_log$Date, date_format_ods)
 training_log$Date <- as.Date(training_log$Date, date_format_ods)
 massive_db <- massive_db %>%
-  select(name, reps, weight, created) %>%
   mutate(
     name = trimws(name),
     created = as.POSIXct(created, format = date_format_sqlite),
     date = as.Date(created)
   )
+massive_db_bw <- massive_db_bw %>%
+  mutate(
+    created = as.POSIXct(created, format = date_format_sqlite),
+    Date = as.Date(created)
+  ) %>%
+  select(Date, BodyWeight)
 
 # Fix missing bodyweight multipliers
 exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
+
+# Merge bodyweight data from both sources
+health_log <- bind_rows(health_log, massive_db_bw)
 
 # Carry last body weight forward to current date
 health_log$BodyWeight[nrow(health_log)] <- ifelse(
