@@ -38,7 +38,7 @@ calculate_max_tonnage <- function(data, n) {
 #---- Parameters ----
 # File paths
 
-ods_path <- "./fitness-log.ods"
+setwd("~/Documents/tervis/jacked-w-shiny/")
 
 # Automatically find the latest massive*.db file
 db_files <- list.files(pattern = "^massive( \\(\\d+\\))?\\.db$")
@@ -63,6 +63,8 @@ if (length(versions) == 0) {
 }
 # Select the file with the highest version number
 sqlite_path <- db_files[which.max(versions)]
+
+ods_path <- "./fitness-log.ods"
 
 # Sheet names
 training_log_sheet <- "TrainingLog"
@@ -427,11 +429,4 @@ server <- function(input, output, session) {
 }
 
 #---- Run the Shiny app ----
-app <- shinyApp(ui = ui, server = server)
-
-#runApp(app, port = 6006, host = "0.0.0.0")
-# Use this if you don't want to expose your dashboard to the LAN.
-#runApp(app, port=6006)
-
-# Comment out runApp() and uncomment this to get it working inside RStudio.
-app
+shinyApp(ui = ui, server = server)
