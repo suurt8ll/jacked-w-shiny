@@ -53,3 +53,6 @@ rsconnect/
 *fitness-log.ods*
 *.db
 *.csv
+
+# VS Code
+.vscode/

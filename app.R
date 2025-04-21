@@ -1,27 +1,17 @@
 #---- Packages and Functions ----
-required_libs <- c(
-  "shiny",
-  "shinydashboard",
-  "dplyr",
-  "tidyr",
-  "readODS",
-  "stringi",
-  "zoo",
-  "ggplot2",
-  "scales",
-  "plotly",
-  "RSQLite",
-  "lubridate",
-  "DT"
-)
-# Install missing libraries.
-for (lib in required_libs) {
-  if (!(lib %in% installed.packages()[, "Package"])) {
-    install.packages(lib)
-  }
-}
-# Load all libraries.
-lapply(required_libs, require, character.only = TRUE)
+library("shiny")
+library("shinydashboard")
+library("dplyr")
+library("tidyr")
+library("readODS")
+library("stringi")
+library("zoo")
+library("ggplot2")
+library("scales")
+library("plotly")
+library("RSQLite")
+library("lubridate")
+library("DT")
 
 # Functions
 # Calculate max tonnage for `n` sets
