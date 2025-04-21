@@ -56,3 +56,6 @@ rsconnect/
 
 # VS Code
 .vscode/
+
+# Other
+.lintr

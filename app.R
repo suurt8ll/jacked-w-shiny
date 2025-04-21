@@ -12,6 +12,7 @@ library("plotly")
 library("RSQLite")
 library("lubridate")
 library("DT")
+library("here")
 
 # Functions
 # Calculate max tonnage for `n` sets
@@ -28,11 +29,14 @@ calculate_max_tonnage <- function(data, n) {
 #---- Parameters ----
 # File paths
 
-setwd("~/Documents/tervis/jacked-w-shiny/")
-
 # Automatically find the latest massive*.db file
+# list.files() searches the current working directory by default.
+# If your .db files are in the project root, this works fine with `here`
+# because `here` helps establish the project context.
+# If they were in a subdirectory (e.g., 'data'), you'd use list.files(here("data"), ...)
 db_files <- list.files(pattern = "^massive( \\(\\d+\\))?\\.db$")
-# Function to extract version numbers from filenames
+
+# Function to extract version numbers
 extract_version <- function(filename) {
   if (filename == "massive.db") {
     return(0)
@@ -45,16 +49,18 @@ extract_version <- function(filename) {
     }
   }
 }
+
 # Apply the function to each filename to get versions
 versions <- sapply(db_files, extract_version)
+
 # Check if any files were found
 if (length(versions) == 0) {
   stop("No massive*.db files found in the current directory.")
 }
-# Select the file with the highest version number
-sqlite_path <- db_files[which.max(versions)]
 
-ods_path <- "./fitness-log.ods"
+# Select the file with the highest version number
+sqlite_path <- here(db_files[which.max(versions)])
+ods_path <- here("fitness-log.ods")
 
 # Sheet names
 training_log_sheet <- "TrainingLog"
@@ -170,7 +176,7 @@ rm("con", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_
 #---- Shiny ui ----
 ui <- dashboardPage(
   dashboardHeader(title = "GAINZ"),
-  
+
   dashboardSidebar(sidebarMenu(
     menuItem(
       "BodyWeight",
@@ -182,7 +188,7 @@ ui <- dashboardPage(
     menuItem("Calculator", tabName = "calc", icon = icon("bar-chart")),
     menuItem("Raw Data", tabName = "rawdata", icon = icon("table"))
   )),
-  
+
   dashboardBody(
     tags$head(
       tags$link(rel = "icon", type = "image/png", sizes = "32x32", href = "favicon-32x32.png"),
