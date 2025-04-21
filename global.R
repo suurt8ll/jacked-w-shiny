@@ -1,0 +1,170 @@
+#---- Packages and Functions ----
+library("shiny")
+library("shinydashboard")
+library("dplyr")
+library("tidyr")
+library("readODS")
+library("stringi")
+library("zoo")
+library("ggplot2")
+library("scales")
+library("plotly")
+library("RSQLite")
+library("lubridate")
+library("DT")
+library("here")
+
+# Functions
+# Calculate max tonnage for `n` sets
+calculate_max_tonnage <- function(data, n) {
+  data %>%
+    group_by(date) %>%
+    summarise(
+      max_tonnage = if (n > n()) NA else max(apply(combn(tonnage, n), 2, sum, na.rm = TRUE)),
+      .groups = "drop"
+    ) %>%
+    filter(!is.na(max_tonnage)) # Exclude dates with fewer than `n` sets
+}
+
+#---- Parameters ----
+# File paths
+
+# Automatically find the latest massive*.db file
+db_files <- list.files(here("data"), pattern = "^massive( \\(\\d+\\))?\\.db$")
+
+# Function to extract version numbers
+extract_version <- function(filename) {
+  if (filename == "massive.db") {
+    return(0)
+  } else {
+    matches <- regmatches(filename, regexec("\\((\\d+)\\)", filename))
+    if (length(matches[[1]]) > 1) {
+      return(as.numeric(matches[[1]][2]))
+    } else {
+      return(0)
+    }
+  }
+}
+
+# Apply the function to each filename to get versions
+versions <- sapply(db_files, extract_version)
+
+# Check if any files were found
+if (length(versions) == 0) {
+  stop("No massive*.db files found in the current directory.")
+}
+
+# Select the file with the highest version number
+sqlite_path <- here("data", db_files[which.max(versions)])
+ods_path <- here("data", "fitness-log.ods")
+
+# Sheet names
+training_log_sheet <- "TrainingLog"
+health_log_sheet <- "HealthLog"
+exercise_db_sheet <- "ExerciseDatabase"
+
+# Date formats
+date_format_ods <- "%m/%d/%y"
+date_format_sqlite <- "%Y-%m-%dT%H:%M:%S"
+
+# Rolling average window size
+rolling_window <- 30
+
+#---- Data loading ----
+
+# TODO User should have an option to reload data directly in app without needing to restart the whole program.
+# ^ Hint: this can be done separately in bash script, user needs to press a key to refresh.
+
+# Load data from LibreOffice Calc file
+training_log <- read_ods(path = ods_path, sheet = training_log_sheet)
+health_log <- read_ods(path = ods_path, sheet = health_log_sheet)
+exercise_df <- read_ods(path = ods_path, sheet = exercise_db_sheet)
+
+# Load data from SQLite database
+con <- dbConnect(SQLite(), sqlite_path)
+massive_db <- dbReadTable(con, "sets") %>% select(name, reps, weight, created)
+massive_db_bw <- dbReadTable(con, "weights") %>% select(created, BodyWeight = value)
+dbDisconnect(con)
+
+#---- Data Cleaning ----
+# Convert dates
+health_log$Date <- as.Date(health_log$Date, date_format_ods)
+training_log$Date <- as.Date(training_log$Date, date_format_ods)
+massive_db <- massive_db %>%
+  mutate(
+    name = trimws(name),
+    created = as.POSIXct(created, format = date_format_sqlite),
+    date = as.Date(created)
+  )
+massive_db_bw <- massive_db_bw %>%
+  mutate(
+    created = as.POSIXct(created, format = date_format_sqlite),
+    Date = as.Date(created)
+  ) %>%
+  select(Date, BodyWeight)
+
+# Fix missing bodyweight multipliers
+exercise_df$bwMultiplier <- ifelse(is.na(exercise_df$bwMultiplier), 0, exercise_df$bwMultiplier)
+
+# Merge bodyweight data from both sources
+health_log <- bind_rows(health_log, massive_db_bw)
+
+# Create a sequence of all dates in the range
+all_dates <- seq(from = min(health_log$Date), to = Sys.Date(), by = "day")
+
+# Create a new dataframe with all dates and merge it with health_log
+health_log <- data.frame(Date = all_dates) %>%
+  left_join(health_log, by = "Date")
+
+# Carry last body weight forward to current date
+health_log$BodyWeight[nrow(health_log)] <- ifelse(
+  is.na(tail(health_log$BodyWeight, n = 1)),
+  tail(na.trim(health_log$BodyWeight), n = 1),
+  tail(health_log$BodyWeight, n = 1)
+)
+
+#---- Data Transformations ----
+
+# FIXME Exercises not in exercise_df should be omitted.
+
+# Interpolate missing bodyweight data and calculate moving average
+health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE)
+health_log$BodyWeight_MA <- rollapply(
+  health_log$BodyWeight_interpolated,
+  width = rolling_window,
+  FUN = mean,
+  fill = NA,
+  align = "right"
+)
+# Pivot longer: Combine R1, R2,... and W1, W2,... into rows
+training_log_long <- training_log %>%
+  pivot_longer(
+    cols = starts_with("R") | starts_with("W"),   # Columns to pivot
+    names_to = c(".value", "Set"),               # Extract values (R/W) and Set number
+    names_pattern = "([RW])(\\d+)"               # Regex to split column names into R/W and set number
+  ) %>%
+  filter(!(is.na(R) & is.na(W))) %>%      # Drop rows where both Reps and Weight are NA
+  rename(
+    date = Date,                              # Rename Date to created
+    name = Exercise,                             # Rename Exercise to name
+    reps = R,                                 # Rename Reps to reps
+    weight = W                              # Rename Weight to weight
+  ) %>%
+  arrange(date, Num, Set) %>%                         # Optional: Arrange rows by date and set
+  select(name, reps, weight, date, everything()) # Reorder columns with the renamed ones first
+# Merge everything into one big dataframe.
+merged_df_libreoffice <- training_log_long %>%
+  left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(health_log, by = c("date" = "Date"))
+merged_df_massive <- massive_db %>%
+  left_join(exercise_df, by = c("name" = "Exercise")) %>%
+  left_join(health_log, by = c("date" = "Date"))
+# Bind rows with only common columns
+merged_df <- bind_rows(
+  merged_df_libreoffice %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive)))),
+  merged_df_massive %>% select(all_of(intersect(names(merged_df_libreoffice), names(merged_df_massive))))
+)
+# Remove rows where weight or reps is missing
+merged_df <- merged_df %>%
+  filter(!is.na(weight) & !is.na(reps))
+rm("con", "massive_db", "merged_df_libreoffice", "merged_df_massive", "training_log", "training_log_long")
