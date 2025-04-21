@@ -30,11 +30,7 @@ calculate_max_tonnage <- function(data, n) {
 # File paths
 
 # Automatically find the latest massive*.db file
-# list.files() searches the current working directory by default.
-# If your .db files are in the project root, this works fine with `here`
-# because `here` helps establish the project context.
-# If they were in a subdirectory (e.g., 'data'), you'd use list.files(here("data"), ...)
-db_files <- list.files(pattern = "^massive( \\(\\d+\\))?\\.db$")
+db_files <- list.files(here("data"), pattern = "^massive( \\(\\d+\\))?\\.db$")
 
 # Function to extract version numbers
 extract_version <- function(filename) {
@@ -59,8 +55,8 @@ if (length(versions) == 0) {
 }
 
 # Select the file with the highest version number
-sqlite_path <- here(db_files[which.max(versions)])
-ods_path <- here("fitness-log.ods")
+sqlite_path <- here("data", db_files[which.max(versions)])
+ods_path <- here("data", "fitness-log.ods")
 
 # Sheet names
 training_log_sheet <- "TrainingLog"

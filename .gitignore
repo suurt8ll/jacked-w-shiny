@@ -50,9 +50,7 @@ po/*~
 rsconnect/
 
 # Data sources
-*fitness-log.ods*
-*.db
-*.csv
+data/
 
 # VS Code
 .vscode/
