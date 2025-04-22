@@ -8,6 +8,20 @@ ui <- fluidPage(
   ),
   navbarPage(
     title = "GAINZ",
+    theme = bslib::bs_theme(
+      version = 5, # Good practice to specify Bootstrap version
+      bg = "#000000", # Black background
+      fg = "#FFFFFF", # White text
+      primary = "purple", # Primary color (buttons, highlights)
+      "input-bg" = "#333333", # Dark grey for input backgrounds (slightly lighter than pure black)
+      "input-fg" = "#FFFFFF", # White text for inputs
+      "input-border-color" = "#555555", # Grey border for inputs
+      # Explicitly theme dropdowns (might be needed for selectize)
+      "dropdown-bg" = "#222222", # Dark background for dropdown menu
+      "dropdown-link-color" = "#FFFFFF", # White text for dropdown items
+      "dropdown-link-hover-bg" = "purple", # Primary color on hover
+      "dropdown-link-hover-color" = "#FFFFFF" # White text on hover
+    ),
     # Replace sidebarMenu/menuItem/tabItems/tabItem with tabPanel
     tabPanel(
       title = tagList("BodyWeight", icon("bar-chart")), # Combine title and icon

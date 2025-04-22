@@ -1,4 +1,6 @@
 /* www/styles.css */
+
+/* --- FIX PLOT DIMENSIONS --- */
 #kehakaalPlot {
   height: calc(100vh - 160px) !important;
 }
@@ -9,4 +11,170 @@
 
 #maxTonnagePlot {
   height: calc(100vh - 160px) !important;
+}
+
+/* --- FIX selectInput() COLORS --- */
+/* Style the selectize input box itself */
+.selectize-input {
+  background-color: #333333 !important; /* Match input-bg */
+  color: #FFFFFF !important;           /* Match input-fg */
+  border-color: #555555 !important;     /* Match input-border-color */
+}
+
+/* Style the dropdown menu container */
+.selectize-dropdown, .selectize-dropdown.form-control {
+  background-color: #222222 !important; /* Match dropdown-bg */
+  border-color: #555555 !important;
+}
+
+/* Style the content area within the dropdown */
+.selectize-dropdown-content {
+  background-color: #222222 !important; /* Match dropdown-bg */
+}
+
+/* Style individual options in the dropdown */
+.selectize-dropdown .option {
+  color: #FFFFFF !important; /* Match dropdown-link-color */
+  background-color: transparent; /* Ensure no overriding light background */
+}
+
+/* Style hovered options */
+.selectize-dropdown .option:hover,
+.selectize-dropdown .option:focus {
+  background-color: purple !important; /* Match dropdown-link-hover-bg / primary */
+  color: #FFFFFF !important;        /* Match dropdown-link-hover-color */
+}
+
+/* Style the selected option (when dropdown is open) */
+.selectize-dropdown .active {
+  background-color: #5a005a !important; /* Slightly darker purple or adjust as needed */
+  color: #FFFFFF !important;
+}
+
+/* Style the selected item(s) shown *inside* the input box (for multi-select or tags) */
+.selectize-input > div {
+  background: #555555 !important; /* A distinct dark grey */
+  color: #FFFFFF !important;
+  border-radius: 3px;
+}
+
+/* Style the caret (dropdown arrow) - might need adjustment based on inspection */
+.selectize-input::after {
+  border-color: #FFFFFF transparent transparent transparent !important; /* White arrow */
+}
+.selectize-input.dropdown-active::after {
+   border-color: transparent transparent #FFFFFF transparent !important; /* White arrow when open */
+}
+
+/* Style the selected item(s) shown *inside* the input box */
+/* Make background transparent for single select items */
+.selectize-control.single .selectize-input > div {
+  background: transparent !important; /* Remove the grey box background */
+  color: inherit !important;         /* Inherit text color from input */
+  border: none !important;           /* Remove any potential border */
+  padding: 0 !important;             /* Remove extra padding if any */
+  display: inline !important;        /* Ensure it flows like normal text */
+  vertical-align: baseline !important; /* Align with other text */
+}
+
+/* Keep the style for multi-select items (if you ever use them) */
+.selectize-control.multi .selectize-input > div {
+  background: #555555 !important;
+  color: #FFFFFF !important;
+  border-radius: 3px;
+  /* Add back padding/margin if needed for multi-select */
+  padding: 2px 6px;
+  margin: 0 3px 3px 0;
+  display: inline-block;
+}
+
+/* --- FIX DT::dataTableOutput() COLORS --- */
+/* General table text color */
+.dataTables_wrapper,
+table.dataTable td,
+table.dataTable th {
+  color: #E0E0E0 !important; /* Lighter grey/off-white for better readability */
+}
+
+/* Table header background and border */
+table.dataTable thead th {
+  background-color: #2a2a2a !important; /* Slightly lighter dark for header */
+  border-bottom: 1px solid #555555 !important;
+}
+table.dataTable thead th,
+table.dataTable thead td {
+    border-bottom: 1px solid #555555 !important; /* Ensure header bottom border is visible */
+}
+
+
+/* Table body cell borders */
+table.dataTable td {
+  border-top: 1px solid #444444 !important; /* Darker border for cells */
+}
+table.dataTable.no-footer {
+    border-bottom: 1px solid #555555 !important; /* Ensure table border is visible */
+}
+
+
+/* Row striping (adjust background colors for contrast) */
+table.dataTable tbody tr.odd td {
+  background-color: #1c1c1c !important; /* Slightly different dark for odd rows */
+}
+table.dataTable tbody tr.even td {
+  background-color: #111111 !important; /* Base dark for even rows */
+}
+
+/* Row hover effect */
+table.dataTable tbody tr:hover td {
+  background-color: #4a004a !important; /* Darker purple on hover */
+  color: #FFFFFF !important; /* White text on hover */
+}
+
+/* Selected row (if selection is enabled) */
+table.dataTable tbody tr.selected td {
+    background-color: purple !important; /* Primary color for selected */
+    color: #FFFFFF !important;
+}
+
+
+/* Control elements: Search box, Length menu, Info text, Pagination */
+.dataTables_length label,
+.dataTables_filter label,
+.dataTables_info {
+  color: #E0E0E0 !important; /* Lighter text for controls */
+}
+
+/* Input fields within controls (Search) */
+.dataTables_filter input,
+.dataTables_length select {
+  background-color: #333333 !important;
+  color: #FFFFFF !important;
+  border: 1px solid #555555 !important;
+}
+
+/* Pagination buttons */
+.dataTables_paginate .paginate_button {
+  color: #E0E0E0 !important; /* Button text */
+  background-color: #2a2a2a !important;
+  border: 1px solid #555555 !important;
+}
+
+.dataTables_paginate .paginate_button:hover {
+  color: #FFFFFF !important;
+  background-color: purple !important; /* Use primary color on hover */
+  border: 1px solid purple !important;
+}
+
+.dataTables_paginate .paginate_button.current,
+.dataTables_paginate .paginate_button.current:hover {
+  color: #FFFFFF !important;
+  background-color: #5a005a !important; /* Darker primary for current page */
+  border: 1px solid #5a005a !important;
+}
+
+.dataTables_paginate .paginate_button.disabled,
+.dataTables_paginate .paginate_button.disabled:hover {
+  color: #777777 !important; /* Dim disabled buttons */
+  background-color: #222222 !important;
+  border: 1px solid #444444 !important;
 }

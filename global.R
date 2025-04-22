@@ -12,6 +12,11 @@ library("RSQLite")
 library("lubridate")
 library("DT")
 library("here")
+library("bslib")
+library("thematic")
+
+# Change R plot theming defaults for all the plots generated in the app.
+thematic_shiny()
 
 # Functions
 # Calculate max tonnage for `n` sets

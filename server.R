@@ -42,12 +42,9 @@ server <- function(input, output, session) {
 
   output$kehakaalPlot <- renderPlotly({
     p <- ggplot(health_log, aes(x = Date)) +
-      geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
-      geom_line(aes(y = BodyWeight_MA),
-                color = "black",
-                na.rm = TRUE) +
-      labs(title = "BodyWeight with 30-Day Moving Average", x = "Date", y = "BodyWeight") +
-      theme_minimal()
+      geom_point(aes(y = BodyWeight), color = "purple", na.rm = TRUE) +
+      geom_line(aes(y = BodyWeight_MA), na.rm = TRUE) +
+      labs(title = "BodyWeight with 30-Day Moving Average", x = "Date", y = "BodyWeight")
     ggplotly(p)
   })
 
@@ -79,9 +76,8 @@ server <- function(input, output, session) {
 
     # Plot the data using ggplot2
     p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
-      geom_bar(stat = "identity", fill = "grey") +
+      geom_bar(stat = "identity", fill = "purple") +
       labs(title = "Weekly Active Minutes", x = "Week", y = "Total Active Minutes") +
-      theme_minimal() +
       theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
     ggplotly(p)
@@ -94,25 +90,23 @@ server <- function(input, output, session) {
     # Check if results are available (e.g., if exercise_data was empty)
     if (is.null(results) || nrow(results) == 0) {
       # Return an empty plot or a message if no data
+      # Keep the plotly_empty part as it's a plotly object already
       return(plotly_empty(type = "scatter", mode = "markers") %>%
                layout(title = "No data available for this exercise"))
     }
 
-    # Use the results for plotting
-    plot_ly(
-      data = results,
-      x = ~date,
-      y = ~max_tonnage,
-      color = ~as.factor(n_sets),
-      type = "scatter",
-      mode = "lines+markers"
-    ) %>%
-      layout(
+    p <- ggplot(data = results, aes(x = date, y = max_tonnage)) +
+      # Map color to n_sets (as a factor) for lines and points
+      geom_line(aes(color = as.factor(n_sets))) +
+      geom_point(aes(color = as.factor(n_sets))) +
+      # Add titles and labels
+      labs(
         title = "Max Tonnage Records for 1-5 Sets",
-        xaxis = list(title = "Date"),
-        yaxis = list(title = "Max Tonnage"),
-        legend = list(title = list(text = "Number of Sets"))
+        x = "Date",
+        y = "Max Tonnage",
+        color = "Number of Sets" # Set the legend title for the color aesthetic
       )
+    ggplotly(p)
   })
 
   output$calc_reps <- DT::renderDataTable({

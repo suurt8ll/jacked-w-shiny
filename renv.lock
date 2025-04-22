@@ -2702,6 +2702,31 @@
       "Maintainer": "Kirill Müller <kirill@cynkra.com>",
       "Repository": "RSPM"
     },
+    "rstudioapi": {
+      "Package": "rstudioapi",
+      "Version": "0.17.1",
+      "Source": "Repository",
+      "Title": "Safely Access the RStudio API",
+      "Description": "Access the RStudio API (if available) and provide informative error messages when it's not.",
+      "Authors@R": "c( person(\"Kevin\", \"Ushey\", role = c(\"aut\", \"cre\"), email = \"kevin@rstudio.com\"), person(\"JJ\", \"Allaire\", role = c(\"aut\"), email = \"jj@posit.co\"), person(\"Hadley\", \"Wickham\", role = c(\"aut\"), email = \"hadley@posit.co\"), person(\"Gary\", \"Ritchie\", role = c(\"aut\"), email = \"gary@posit.co\"), person(family = \"RStudio\", role = \"cph\") )",
+      "Maintainer": "Kevin Ushey <kevin@rstudio.com>",
+      "License": "MIT + file LICENSE",
+      "URL": "https://rstudio.github.io/rstudioapi/, https://github.com/rstudio/rstudioapi",
+      "BugReports": "https://github.com/rstudio/rstudioapi/issues",
+      "RoxygenNote": "7.3.2",
+      "Suggests": [
+        "testthat",
+        "knitr",
+        "rmarkdown",
+        "clipr",
+        "covr"
+      ],
+      "VignetteBuilder": "knitr",
+      "Encoding": "UTF-8",
+      "NeedsCompilation": "no",
+      "Author": "Kevin Ushey [aut, cre], JJ Allaire [aut], Hadley Wickham [aut], Gary Ritchie [aut], RStudio [cph]",
+      "Repository": "CRAN"
+    },
     "sass": {
       "Package": "sass",
       "Version": "0.4.10",
@@ -2851,31 +2876,6 @@
       "Maintainer": "Winston Chang <winston@posit.co>",
       "Repository": "CRAN"
     },
-    "shinydashboard": {
-      "Package": "shinydashboard",
-      "Version": "0.7.2",
-      "Source": "Repository",
-      "Title": "Create Dashboards with 'Shiny'",
-      "Authors@R": "c( person(\"Winston\", \"Chang\", role = c(\"aut\", \"cre\"), email = \"winston@rstudio.com\"), person(\"Barbara\", \"Borges Ribeiro\", role = \"aut\", email = \"barbara@rstudio.com\"), person(family = \"RStudio\", role = \"cph\"), person(family = \"Almasaeed Studio\", role = c(\"ctb\", \"cph\"), comment = \"AdminLTE theme for Bootstrap\"), person(family = \"Adobe Systems Incorporated\", role = c(\"ctb\", \"cph\"), comment = \"Source Sans Pro font\") )",
-      "Description": "Create dashboards with 'Shiny'. This package provides a theme on top of 'Shiny', making it easy to create attractive dashboards.",
-      "URL": "http://rstudio.github.io/shinydashboard/",
-      "Depends": [
-        "R (>= 3.0)"
-      ],
-      "License": "GPL (>= 2) | file LICENSE",
-      "Imports": [
-        "utils",
-        "shiny (>= 1.0.0)",
-        "htmltools (>= 0.2.6)",
-        "promises"
-      ],
-      "BugReports": "https://github.com/rstudio/shinydashboard",
-      "RoxygenNote": "6.0.1.9000",
-      "NeedsCompilation": "no",
-      "Author": "Winston Chang [aut, cre], Barbara Borges Ribeiro [aut], RStudio [cph], Almasaeed Studio [ctb, cph] (AdminLTE theme for Bootstrap), Adobe Systems Incorporated [ctb, cph] (Source Sans Pro font)",
-      "Maintainer": "Winston Chang <winston@rstudio.com>",
-      "Repository": "CRAN"
-    },
     "sourcetools": {
       "Package": "sourcetools",
       "Version": "0.1.7-1",
@@ -2994,6 +2994,64 @@
       "NeedsCompilation": "yes",
       "Author": "Jeroen Ooms [aut, cre] (<https://orcid.org/0000-0002-4035-0289>), Gábor Csárdi [ctb]",
       "Maintainer": "Jeroen Ooms <jeroenooms@gmail.com>",
+      "Repository": "CRAN"
+    },
+    "thematic": {
+      "Package": "thematic",
+      "Version": "0.1.6",
+      "Source": "Repository",
+      "Title": "Unified and Automatic 'Theming' of 'ggplot2', 'lattice', and 'base' R Graphics",
+      "Authors@R": "c( person(\"Carson\", \"Sievert\", , \"carson@posit.co\", role = c(\"aut\", \"cre\"), comment = c(ORCID = \"0000-0002-4958-2844\")), person(\"Barret\", \"Schloerke\", , \"barret@posit.co\", role = \"aut\", comment = c(ORCID = \"0000-0001-9986-114X\")), person(\"Joe\", \"Cheng\", , \"joe@posit.co\", role = \"aut\"), person(\"Posit Software, PBC\", role = c(\"cph\", \"fnd\")) )",
+      "Description": "Theme 'ggplot2', 'lattice', and 'base' graphics based on a few choices, including foreground color, background color, accent color, and font family. Fonts that aren't available on the system, but are available via download on 'Google Fonts', can be automatically downloaded, cached, and registered for use with the 'showtext' and 'ragg' packages.",
+      "License": "MIT + file LICENSE",
+      "URL": "https://rstudio.github.io/thematic/, https://github.com/rstudio/thematic",
+      "BugReports": "https://github.com/rstudio/thematic/issues",
+      "Depends": [
+        "R (>= 3.0.0)"
+      ],
+      "Imports": [
+        "farver",
+        "ggplot2 (>= 3.3.0)",
+        "graphics",
+        "grDevices",
+        "grid",
+        "rappdirs",
+        "rlang",
+        "rstudioapi (>= 0.8)",
+        "scales",
+        "utils"
+      ],
+      "Suggests": [
+        "bslib",
+        "Cairo",
+        "curl",
+        "gganimate",
+        "ggiraph",
+        "htmltools",
+        "jsonlite",
+        "knitr",
+        "lattice",
+        "ragg",
+        "rmarkdown",
+        "shiny (>= 1.5.0)",
+        "showtext",
+        "stats",
+        "svglite",
+        "sysfonts",
+        "systemfonts",
+        "testthat",
+        "vdiffr (>= 1.0.0)",
+        "withr"
+      ],
+      "Config/Needs/check": "shinytest, callr, sf, ggthemes, patchwork, gridExtra, tinytex, devtools, rversions",
+      "Config/Needs/routine": "ggrepel",
+      "Config/Needs/website": "GGally, RColorBrewer, patchwork, apreshill/quillt",
+      "Encoding": "UTF-8",
+      "RoxygenNote": "7.3.2",
+      "Collate": "'auto.R' 'base.R' 'cache.R' 'gfonts.R' 'ggplot.R' 'globals.R' 'hooks.R' 'knitr.R' 'lattice.R' 'onLoad.R' 'thematic-package.R' 'thematic-save-plot.R' 'thematic.R' 'utils.R' 'view-shinytest.R'",
+      "NeedsCompilation": "no",
+      "Author": "Carson Sievert [aut, cre] (<https://orcid.org/0000-0002-4958-2844>), Barret Schloerke [aut] (<https://orcid.org/0000-0001-9986-114X>), Joe Cheng [aut], Posit Software, PBC [cph, fnd]",
+      "Maintainer": "Carson Sievert <carson@posit.co>",
       "Repository": "CRAN"
     },
     "tibble": {
