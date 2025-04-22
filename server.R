@@ -20,6 +20,26 @@ server <- function(input, output, session) {
     updateSelectInput(session, "calc_exercise", selected = input$exercise)
   })
 
+  reactive_tonnage_results <- reactive({
+    req(input$exercise) # Ensure input$exercise is available
+
+    exercise_data <- merged_df %>%
+      filter(name == input$exercise) %>%
+      mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
+      select(date, tonnage)
+
+    # Handle case where exercise_data might be empty
+    if (nrow(exercise_data) == 0) {
+      return(NULL) # Return an empty structure that downstream code can handle.
+    }
+
+    lapply(1:5, function(n) {
+      calculate_max_tonnage(exercise_data, n) %>%
+        mutate(n_sets = n)
+    }) %>%
+      bind_rows()
+  })
+
   output$kehakaalPlot <- renderPlotly({
     p <- ggplot(health_log, aes(x = Date)) +
       geom_point(aes(y = BodyWeight), color = "grey", na.rm = TRUE) +
@@ -68,25 +88,22 @@ server <- function(input, output, session) {
   })
 
   output$maxTonnagePlot <- renderPlotly({
-    # Calculate tonnage per set
-    exercise_data <- merged_df %>%
-      filter(name == input$exercise) %>%
-      mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
-      select(date, tonnage)
+    # Get the pre-calculated results from the reactive expression
+    results <- reactive_tonnage_results()
 
-    # Generate results for multiple `n` values
-    results <- lapply(1:5, function(n) {
-      calculate_max_tonnage(exercise_data, n) %>%
-        mutate(n_sets = n)
-    }) %>%
-      bind_rows()
+    # Check if results are available (e.g., if exercise_data was empty)
+    if (is.null(results) || nrow(results) == 0) {
+      # Return an empty plot or a message if no data
+      return(plotly_empty(type = "scatter", mode = "markers") %>%
+               layout(title = "No data available for this exercise"))
+    }
 
-    # Create an interactive plot for multiple values of `n`
+    # Use the results for plotting
     plot_ly(
       data = results,
       x = ~date,
       y = ~max_tonnage,
-      color = ~as.factor(n_sets), # Use `n_sets` as the grouping variable
+      color = ~as.factor(n_sets),
       type = "scatter",
       mode = "lines+markers"
     ) %>%
@@ -99,33 +116,45 @@ server <- function(input, output, session) {
   })
 
   output$calc_reps <- DT::renderDataTable({
-    # Existing calculation logic remains the same
-    exercise_data <- merged_df %>%
-      filter(name == input$calc_exercise) %>%
-      mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
-      select(date, tonnage)
+    # Get the pre-calculated results from the reactive expression
+    results <- reactive_tonnage_results()
 
-    # Generate results for multiple `n` values
-    results <- lapply(1:5, function(n) {
-      calculate_max_tonnage(exercise_data, n) %>%
-        mutate(n_sets = n)
-    }) %>%
-      bind_rows() %>%
+    # Check if results are available
+    if (is.null(results) || nrow(results) == 0) {
+      return(DT::datatable(data.frame(`Number of Sets` = integer(0),
+                                      `Max Tonnage` = integer(0),
+                                      `Last Tonnage` = integer(0),
+                                      `Reps to Beat PR` = integer(0),
+                                      `Reps to Beat Last` = integer(0)),
+                           options = list(pageLength = 5),
+                           rownames = FALSE))
+    }
+
+    # Continue with the calculation specific to the table
+    table_data <- results %>%
       group_by(n_sets) %>%
       summarise(
         maxTonnage = max(max_tonnage),
+        # This assumes results are ordered by date within each n_sets group, which calculate_max_tonnage does.
         lastTonnage = tail(max_tonnage, 1)
       ) %>%
       mutate(
-        adjusted_weight = input$calc_weight +
-          exercise_df$bwMultiplier[exercise_df$Exercise == input$calc_exercise] *
-            tail(merged_df$BodyWeight_MA, 1),
-        repsPR = maxTonnage / adjusted_weight,
-        repsBeatPrev = lastTonnage / adjusted_weight
+        # Ensure input$calc_exercise is available for lookup
+        # Use the synced input$exercise for consistency with the reactive
+        bw_multiplier_val = exercise_df$bwMultiplier[exercise_df$Exercise == input$exercise],
+        # Handle cases where exercise might not be in exercise_df
+        bw_multiplier_val = ifelse(length(bw_multiplier_val) == 0, 0, bw_multiplier_val),
+        # Use the latest BodyWeight_MA from the full merged_df as before
+        latest_bw_ma = tail(merged_df$BodyWeight_MA, 1),
+        adjusted_weight = input$calc_weight + bw_multiplier_val * latest_bw_ma,
+        # Handle division by zero if adjusted_weight is 0 or NA
+        repsPR = ifelse(adjusted_weight == 0 | is.na(adjusted_weight), NA, maxTonnage / adjusted_weight),
+        repsBeatPrev = ifelse(adjusted_weight == 0 | is.na(adjusted_weight), NA, lastTonnage / adjusted_weight)
       ) %>%
       mutate(
-        repsPR = as.integer(ifelse(repsPR %% 1 == 0, repsPR + 1, ceiling(repsPR))),
-        repsBeatPrev = as.integer(ifelse(repsBeatPrev %% 1 == 0, repsBeatPrev + 1, ceiling(repsBeatPrev))),
+        # Apply ceiling logic, handling potential NAs from division
+        repsPR = as.integer(ifelse(is.na(repsPR), NA, floor(repsPR) + 1)),
+        repsBeatPrev = as.integer(ifelse(is.na(repsBeatPrev), NA, floor(repsBeatPrev) + 1)),
         maxTonnage = as.integer(round(maxTonnage)),
         lastTonnage = as.integer(round(lastTonnage))
       ) %>%
@@ -139,7 +168,7 @@ server <- function(input, output, session) {
 
     # Return the data frame as a DT table
     DT::datatable(
-      results,
+      table_data,
       options = list(pageLength = 5),
       rownames = FALSE
     )
