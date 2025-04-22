@@ -18,12 +18,12 @@ ui <- dashboardPage(
     tags$head(
       tags$link(rel = "icon", type = "image/png", sizes = "32x32", href = "favicon-32x32.png"),
       tags$link(rel = "icon", type = "image/png", sizes = "16x16", href = "favicon-16x16.png"),
-      tags$link(rel = "shortcut icon", href = "favicon.ico")
+      tags$link(rel = "shortcut icon", href = "favicon.ico"),
+      tags$link(rel = "stylesheet", type = "text/css", href = "styles.css")
     ),
     tabItems(
       tabItem(
         tabName = "kaal",
-        tags$style(type = "text/css", "#kehakaalPlot {height: calc(100vh - 160px) !important;}"),
         plotlyOutput("kehakaalPlot", height = "100%", width = "100%")
       ),
       tabItem(
@@ -44,10 +44,6 @@ ui <- dashboardPage(
             selected = "3m"  # Default selection set to "Past 3 Months"
           )
         ),
-        tags$style(
-          type = "text/css",
-          "#activityBarPlot {height: calc(100vh - 160px) !important;}"
-        ),
         plotlyOutput("activityBarPlot", height = "100%", width = "100%")
       ),
       tabItem(
@@ -63,10 +59,6 @@ ui <- dashboardPage(
           width = 6, selectInput("exercise", "Exercise", choices = unique(merged_df$name))
         )),
         fluidRow(
-          tags$style(
-            type = "text/css",
-            "#maxTonnagePlot {height: calc(100vh - 160px) !important;}"
-          ),
           plotlyOutput("maxTonnagePlot", height = "100%", width = "100%")
         )
       ),

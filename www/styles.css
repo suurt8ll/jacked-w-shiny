@@ -1,0 +1,12 @@
+/* www/styles.css */
+#kehakaalPlot {
+  height: calc(100vh - 160px) !important;
+}
+
+#activityBarPlot {
+  height: calc(100vh - 160px) !important;
+}
+
+#maxTonnagePlot {
+  height: calc(100vh - 160px) !important;
+}
