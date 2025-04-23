@@ -33,13 +33,15 @@ Additional wrapper options:
   -b, --browser-value <value> Set R's options(browser = VALUE) before launching.
                               Example: --browser-value 'firefox' or --browser-value '/usr/bin/google-chrome %s'
                               Example: --browser-value 'function(url) {.Call("browseURL", url)}' # R default
+  -r, --autoreload <bool>     Enable Shiny's automatic code reloading? (TRUE/FALSE)
+                              Defaults to FALSE if not specified.
   -h, --help                  Show this help message and exit.
   -v, --verbose               Show the generated R command before running.
 
 Notes:
 * Arguments passed here override R options (like shiny.port).
 * Boolean flags like --quiet and --test-mode set the R argument to TRUE.
-* Boolean arguments like --launch-browser require a TRUE/FALSE value.
+* Boolean arguments like --launch-browser and --autoreload require a TRUE/FALSE value.
 * String values for --browser-value might need appropriate shell quoting if they contain spaces or special characters.
 EOF
   exit 1
@@ -56,6 +58,7 @@ QUIET="FALSE" # Default R value
 DISPLAY_MODE=""
 TEST_MODE="FALSE" # Default R value
 BROWSER_VALUE=""
+AUTORELOAD_VALUE="" # New variable for autoreload flag
 VERBOSE=0
 
 # Use getopt for robust argument parsing (handles long options)
@@ -68,10 +71,10 @@ GETOPT_CMD="getopt"
 # fi
 
 # Define options
-# Short options: a:, p:, l:, H:, w:, q, d:, t, b:, h, v
-# Long options: appDir:, port:, launch-browser:, host:, workerId:, quiet, display-mode:, test-mode, browser-value:, help, verbose
+# Short options: a:, p:, l:, H:, w:, q, d:, t, b:, h, v, r: (added r:)
+# Long options: appDir:, port:, launch-browser:, host:, workerId:, quiet, display-mode:, test-mode, browser-value:, help, verbose, autoreload: (added autoreload:)
 # The ':' means the option takes an argument.
-PARSED_ARGS=$($GETOPT_CMD -o a:p:l:H:w:qd:tb:hv --long appDir:,port:,launch-browser:,host:,workerId:,quiet,display-mode:,test-mode,browser-value:,help,verbose \
+PARSED_ARGS=$($GETOPT_CMD -o a:p:l:H:w:qd:tb:hvr: --long appDir:,port:,launch-browser:,host:,workerId:,quiet,display-mode:,test-mode,browser-value:,help,verbose,autoreload: \
              -n "$(basename "$0")" -- "$@")
 
 # Check if getopt had parsing errors
@@ -121,6 +124,10 @@ while true; do
             BROWSER_VALUE="$2"
             shift 2
             ;;
+        -r | --autoreload) # New case for autoreload
+            AUTORELOAD_VALUE="$2"
+            shift 2
+            ;;
         -h | --help)
             usage
             ;;
@@ -158,6 +165,20 @@ if [[ -n "$BROWSER_VALUE" ]]; then
     # For R functions passed as string, ensure the string is valid R syntax.
     R_CODE+=" options(browser = '${BROWSER_VALUE//\'/\'\\\'\'}');" # Escape single quotes within the value
 fi
+
+# Add autoreload option if specified
+if [[ -n "$AUTORELOAD_VALUE" ]]; then
+    # Convert value to uppercase for R's TRUE/FALSE
+    AUTORELOAD_R_VALUE="${AUTORELOAD_VALUE^^}"
+    # Check if it's a valid boolean (optional but good practice)
+    if [[ "$AUTORELOAD_R_VALUE" != "TRUE" && "$AUTORELOAD_R_VALUE" != "FALSE" ]]; then
+        echo "Error: Invalid value for --autoreload/-r: '$AUTORELOAD_VALUE'. Must be TRUE or FALSE."
+        usage # Exit with error and show usage
+    fi
+    # Add the options() call to the R code string
+    R_CODE+=" options(shiny.autoreload = ${AUTORELOAD_R_VALUE});"
+fi
+
 
 # Build the list of arguments for runApp
 R_ARGS=()
