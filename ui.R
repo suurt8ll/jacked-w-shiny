@@ -54,15 +54,28 @@ ui <- fluidPage(
       value = "maxtonnage",
       fluidRow(
         column(
-          width = 6, dateInput(
+          width = 4,
+          dateInput(
             "date",
-            "Date",
+            "Filter by Date (Optional):",
             min = min(merged_df$date),
-            max = max(merged_df$date)
+            max = max(merged_df$date),
+            value = NULL # Start with no date selected for filtering
           )
         ),
         column(
-          width = 6, selectInput("exercise", "Exercise", choices = unique(merged_df$name))
+          width = 4, # Adjusted width
+          selectInput("exercise", "Exercise:", choices = unique(merged_df$name))
+        ),
+        column(
+          width = 4,
+          dateInput(
+            "regressionStartDate",
+            "Regression Start Date:",
+            min = min(merged_df$date), # Use global min for simplicity
+            max = max(merged_df$date), # Use global max for simplicity
+            value = min(merged_df$date) # Default to earliest date in dataset
+          )
         )
       ),
       plotlyOutput("maxTonnagePlot", height = "100%", width = "100%")

@@ -88,6 +88,8 @@ server <- function(input, output, session) {
   output$maxTonnagePlot <- renderPlotly({
     # Get the pre-calculated results from the reactive expression
     results <- reactive_tonnage_results()
+    # Get the selected start date for regression
+    regression_start_date <- input$regressionStartDate
 
     # Check if results are available (e.g., if exercise_data was empty)
     if (is.null(results) || nrow(results) == 0) {
@@ -106,12 +108,24 @@ server <- function(input, output, session) {
         group_dates <- date
         group_tonnage <- max_tonnage
 
-        # Check if there are enough points to fit a model (at least 2)
-        if (length(group_dates) >= 2) {
-          # Create data for the model (need numeric date for lm)
+        # Filter data based on the selected regression start date
+        # Ensure the regression_start_date is not NULL before filtering
+        if (!is.null(regression_start_date)) {
+          valid_indices <- group_dates >= regression_start_date
+          filtered_dates <- group_dates[valid_indices]
+          filtered_tonnage <- group_tonnage[valid_indices]
+        } else {
+          # If no date is selected (or it's NULL), use all data for the model
+          filtered_dates <- group_dates
+          filtered_tonnage <- group_tonnage
+        }
+
+        # Check if there are enough points *after filtering* to fit a model (at least 2)
+        if (length(filtered_dates) >= 2) {
+          # Create data for the model (need numeric date for lm) using *filtered* data
           model_data <- data.frame(
-            date_numeric = as.numeric(group_dates),
-            max_tonnage = group_tonnage
+            date_numeric = as.numeric(filtered_dates),
+            max_tonnage = filtered_tonnage
           )
           # Fit the linear model: tonnage ~ date
           model <- lm(max_tonnage ~ date_numeric, data = model_data)
@@ -122,14 +136,14 @@ server <- function(input, output, session) {
           # Return a data frame with the prediction row for this group
           data.frame(date = Sys.Date(), max_tonnage = as.numeric(prediction_value))
         } else {
-          # Return an empty data frame if not enough data for this n_sets
+          # Return an empty data frame if not enough data *after filtering* for this n_sets
           data.frame(date = Date(), max_tonnage = numeric())
         }
       })
 
     # --- Plotting ---
     p <- ggplot() +
-      # Add historical data (lines and points)
+      # Add historical data (lines and points) - This uses the original 'results' data frame
       geom_line(data = results, aes(x = date, y = max_tonnage, color = as.factor(n_sets))) +
       geom_point(data = results, aes(x = date, y = max_tonnage, color = as.factor(n_sets))) +
       # Add predicted points for today
@@ -141,6 +155,7 @@ server <- function(input, output, session) {
       # Add titles and labels
       labs(
         title = "Max Tonnage Records (1-5 Sets) with Trend Prediction",
+        subtitle = if (!is.null(regression_start_date)) paste("Regression based on data from", format(regression_start_date, "%Y-%m-%d"), "onwards") else "Regression based on all available data",
         x = "Date",
         y = "Max Tonnage",
         color = "Number of Sets" # Set the legend title for the color aesthetic
