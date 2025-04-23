@@ -64,13 +64,13 @@ ui <- fluidPage(
           )
         ),
         column(
-          width = 4, # Adjusted width
+          width = 4,
           selectInput("exercise", "Exercise:", choices = unique(merged_df$name))
         ),
         column(
           width = 4,
           dateInput(
-            "regressionStartDate",
+            "regressionStartDate", # ID for Tonnage tab
             "Regression Start Date:",
             min = min(merged_df$date), # Use global min for simplicity
             max = max(merged_df$date), # Use global max for simplicity
@@ -83,10 +83,29 @@ ui <- fluidPage(
     tabPanel(
       title = tagList("Calculator", icon("bar-chart")),
       value = "calc",
-      selectInput(
-        "calc_exercise", "Exercise", choices = unique(merged_df$name)
+      # --- NEW: Row for inputs ---
+      fluidRow(
+        column(
+          width = 4,
+          selectInput(
+            "calc_exercise", "Exercise:", choices = unique(merged_df$name)
+          )
+        ),
+        column(
+          width = 4,
+          numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5)
+        ),
+        column(
+          width = 4,
+          dateInput(
+            "calc_regressionStartDate", # Different ID for Calc tab
+            "Regression Start Date:",
+            min = min(merged_df$date),
+            max = max(merged_df$date),
+            value = min(merged_df$date)
+          )
+        )
       ),
-      numericInput("calc_weight", "Weight (kg):", value = 60, min = 2.5, step = 2.5),
       DT::dataTableOutput("calc_reps")
     ),
     tabPanel(
