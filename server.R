@@ -208,16 +208,13 @@ server <- function(input, output, session) {
         repsTrend = ifelse(adjusted_weight == 0 | is.na(adjusted_weight) | is.na(predicted_tonnage), NA, predicted_tonnage / adjusted_weight)
       ) %>%
       mutate(
-        # Apply ceiling logic (floor + 1)
-        repsPR = as.integer(ifelse(is.na(repsPR), NA, floor(repsPR) + 1)),
-        repsTrend = as.integer(ifelse(is.na(repsTrend), NA, floor(repsTrend) + 1)), # Apply to new column
+        repsPR = as.double(round(repsPR, 2)),
+        repsTrend = as.double(round(repsTrend, 2)),
         maxTonnage = as.integer(round(maxTonnage))
-        # lastTonnage = as.integer(round(lastTonnage)) # Removed
       ) %>%
       select(
         `Number of Sets` = n_sets,
         `Max Tonnage` = maxTonnage,
-        # `Last Tonnage` = lastTonnage, # Removed
         `Reps to Beat PR` = repsPR,
         `Reps for Trend` = repsTrend
       )
