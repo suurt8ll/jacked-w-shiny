@@ -26,7 +26,9 @@ server <- function(input, output, session) {
     exercise_data <- merged_df %>%
       filter(name == input$exercise) %>%
       mutate(tonnage = reps * (isBW * (bwMultiplier * BodyWeight_MA) + weight)) %>%
-      select(date, tonnage)
+      select(date, tonnage) %>%
+      # Ensure data is ordered by date for calculate_max_tonnage
+      arrange(date)
 
     # Handle case where exercise_data might be empty
     if (nrow(exercise_data) == 0) {
@@ -90,22 +92,60 @@ server <- function(input, output, session) {
     # Check if results are available (e.g., if exercise_data was empty)
     if (is.null(results) || nrow(results) == 0) {
       # Return an empty plot or a message if no data
-      # Keep the plotly_empty part as it's a plotly object already
       return(plotly_empty(type = "scatter", mode = "markers") %>%
                layout(title = "No data available for this exercise"))
     }
 
-    p <- ggplot(data = results, aes(x = date, y = max_tonnage)) +
-      # Map color to n_sets (as a factor) for lines and points
-      geom_line(aes(color = as.factor(n_sets))) +
-      geom_point(aes(color = as.factor(n_sets))) +
+    # --- Calculate Predicted Tonnage for Today using reframe ---
+    # We need at least 2 points to fit a linear model
+    predicted_points <- results %>%
+      group_by(n_sets) %>%
+      # Use reframe to handle potentially zero or one row output per group
+      reframe({
+        # Access date and max_tonnage directly from the group
+        group_dates <- date
+        group_tonnage <- max_tonnage
+
+        # Check if there are enough points to fit a model (at least 2)
+        if (length(group_dates) >= 2) {
+          # Create data for the model (need numeric date for lm)
+          model_data <- data.frame(
+            date_numeric = as.numeric(group_dates),
+            max_tonnage = group_tonnage
+          )
+          # Fit the linear model: tonnage ~ date
+          model <- lm(max_tonnage ~ date_numeric, data = model_data)
+          # Predict for today's date (numeric)
+          today_numeric <- as.numeric(Sys.Date())
+          prediction_value <- predict(model, newdata = data.frame(date_numeric = today_numeric))
+
+          # Return a data frame with the prediction row for this group
+          data.frame(date = Sys.Date(), max_tonnage = as.numeric(prediction_value))
+        } else {
+          # Return an empty data frame if not enough data for this n_sets
+          data.frame(date = Date(), max_tonnage = numeric())
+        }
+      })
+
+    # --- Plotting ---
+    p <- ggplot() +
+      # Add historical data (lines and points)
+      geom_line(data = results, aes(x = date, y = max_tonnage, color = as.factor(n_sets))) +
+      geom_point(data = results, aes(x = date, y = max_tonnage, color = as.factor(n_sets))) +
+      # Add predicted points for today
+      # Only add the layer if there are predicted points to show
+      {if(nrow(predicted_points) > 0) geom_point(data = predicted_points,
+                                                 aes(x = date, y = max_tonnage, color = as.factor(n_sets)),
+                                                 shape = 17, # Use a different shape (triangle)
+                                                 size = 3)} + # Make it slightly larger
       # Add titles and labels
       labs(
-        title = "Max Tonnage Records for 1-5 Sets",
+        title = "Max Tonnage Records (1-5 Sets) with Trend Prediction",
         x = "Date",
         y = "Max Tonnage",
         color = "Number of Sets" # Set the legend title for the color aesthetic
       )
+
     ggplotly(p)
   })
 
@@ -127,10 +167,11 @@ server <- function(input, output, session) {
     # Continue with the calculation specific to the table
     table_data <- results %>%
       group_by(n_sets) %>%
-      summarise(
+      summarise( # summarise is fine here as it returns exactly one row per group
         maxTonnage = max(max_tonnage),
         # This assumes results are ordered by date within each n_sets group, which calculate_max_tonnage does.
-        lastTonnage = tail(max_tonnage, 1)
+        lastTonnage = tail(max_tonnage, 1),
+        .groups = "drop" # Add .groups = 'drop' to silence the summarise grouping warning
       ) %>%
       mutate(
         # Ensure input$calc_exercise is available for lookup
