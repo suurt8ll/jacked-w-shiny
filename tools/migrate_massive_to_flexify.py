@@ -4,19 +4,20 @@ import shutil
 import sys
 from datetime import datetime, timezone
 
-def iso_to_millis(iso_string):
-    """Converts an ISO 8601 string to milliseconds since epoch (UTC)."""
+def iso_to_seconds(iso_string):
+    """Converts an ISO 8601 string to seconds since epoch (UTC)."""
     if not iso_string:
         return None
     try:
         # Parse the ISO string
+        # Handle potential 'Z' by replacing with '+00:00' for fromisoformat
         dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
         # Ensure it's timezone-aware (assume UTC if no offset)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        # Convert to UTC timestamp in seconds and then to milliseconds
-        timestamp_millis = int(dt.timestamp() * 1000)
-        return timestamp_millis
+        # Convert to UTC timestamp in seconds
+        timestamp_seconds = int(dt.timestamp())
+        return timestamp_seconds
     except ValueError:
         print(f"Warning: Could not parse date string: {iso_string}", file=sys.stderr)
         return None
@@ -73,8 +74,8 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
         """
 
         for row in massive_weights:
-            created_millis = iso_to_millis(row['created'])
-            if created_millis is None:
+            created_seconds = iso_to_seconds(row['created']) # New line
+            if created_seconds is None:
                 print(f"Skipping weight entry due to invalid date: {row['created']}")
                 weights_skipped += 1
                 continue
@@ -86,7 +87,7 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
                 1.0,                          # reps (represent as a single measurement)
                 row['value'],                 # weight (the actual body weight value)
                 row['unit'] or 'kg',          # unit (default to kg if NULL)
-                created_millis,               # created (converted timestamp)
+                created_seconds,               # created (converted timestamp)
                 0,                            # hidden (0 = visible entry)
                 0,                            # cardio (0 = false)
                 0.0,                          # distance
@@ -130,8 +131,8 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
         default_body_weight_for_sets = 0.0
 
         for row in massive_sets:
-            created_millis = iso_to_millis(row['created'])
-            if created_millis is None:
+            created_seconds = iso_to_seconds(row['created']) # New line
+            if created_seconds is None:
                 print(f"Skipping set entry '{row['name']}' due to invalid date: {row['created']}")
                 sets_skipped += 1
                 continue
@@ -153,7 +154,7 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
                 row['reps'],                  # reps (will be float if stored as REAL)
                 row['weight'],                # weight (will be float if stored as REAL)
                 row['unit'] or 'kg',          # unit (default to kg if NULL)
-                created_millis,               # created (converted timestamp)
+                created_seconds,               # created (converted timestamp)
                 row['hidden'],                # hidden (0 or 1)
                 row['image'],                 # image
                 rest_ms,                      # rest_ms (calculated)
