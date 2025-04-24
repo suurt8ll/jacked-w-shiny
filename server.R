@@ -231,7 +231,7 @@ server <- function(input, output, session) {
     last_three_months <- Sys.Date() %m-% months(3)
     filtered_data <- merged_df %>%
       filter(date >= last_three_months) %>%
-      select(date, name, reps, weight, BodyWeight, BodyWeight_MA)
+      select(date, name, reps, weight, BodyWeight_interpolated, BodyWeight_MA)
     filtered_data <- filtered_data[rev(seq_len(nrow(filtered_data))), ]
     DT::datatable(filtered_data)
   })
