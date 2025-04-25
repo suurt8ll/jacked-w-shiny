@@ -135,29 +135,24 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
-        # --- Body weight lookup logic initialization ---
         current_weight_index = 0
         # Default body weight: Use the first recorded weight if available, else 0.0
         last_known_body_weight = processed_weights_sorted[0][1] if processed_weights_sorted else 0.0
-        print(f"Using initial body weight for sets: {last_known_body_weight}") # Optional: Info message
-        # --- End initialization ---
+        print(f"Using initial body weight for sets: {last_known_body_weight}")
 
         for row in massive_sets:
-            # created_millis = iso_to_millis(row['created']) # Old line
-            created_seconds = iso_to_seconds(row['created']) # Use the corrected function
+            created_seconds = iso_to_seconds(row['created'])
             if created_seconds is None:
                 print(f"Skipping set entry '{row['name']}' due to invalid date: {row['created']}")
                 sets_skipped += 1
                 continue
 
-            # --- Find the relevant body weight for this set's timestamp ---
             # Iterate through sorted weights to find the latest one <= set's timestamp
             while (current_weight_index < len(processed_weights_sorted) and
                    processed_weights_sorted[current_weight_index][0] <= created_seconds):
                 last_known_body_weight = processed_weights_sorted[current_weight_index][1]
                 current_weight_index += 1
             # Now last_known_body_weight holds the correct value for this set
-            # --- End body weight lookup ---
 
             # Calculate rest time in milliseconds
             rest_ms = None
