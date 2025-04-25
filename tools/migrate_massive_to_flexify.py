@@ -61,8 +61,12 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
         sets_skipped = 0
         weights_skipped = 0
 
+        # List to store (timestamp_seconds, weight_value) for lookup
+        processed_weights_sorted = []
+
         # 3. Migrate Body Weight Data (Massive `weights` -> Flexify `gym_sets`)
         print("\nMigrating body weight data...")
+        # Make sure to order by created ASC to process chronologically
         cursor_massive.execute("SELECT value, created, unit FROM weights ORDER BY created ASC")
         massive_weights = cursor_massive.fetchall()
 
@@ -74,11 +78,14 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
         """
 
         for row in massive_weights:
-            created_seconds = iso_to_seconds(row['created']) # New line
+            created_seconds = iso_to_seconds(row['created'])
             if created_seconds is None:
                 print(f"Skipping weight entry due to invalid date: {row['created']}")
                 weights_skipped += 1
                 continue
+
+            # Store the valid weight entry for later lookup when processing sets
+            processed_weights_sorted.append((created_seconds, row['value']))
 
             # Use the weight value for both 'weight' and 'body_weight' columns
             # Set reps=1.0 for a single measurement event
@@ -87,12 +94,12 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
                 1.0,                          # reps (represent as a single measurement)
                 row['value'],                 # weight (the actual body weight value)
                 row['unit'] or 'kg',          # unit (default to kg if NULL)
-                created_seconds,               # created (converted timestamp)
+                created_seconds,              # created (converted timestamp in seconds)
                 0,                            # hidden (0 = visible entry)
                 0,                            # cardio (0 = false)
                 0.0,                          # distance
                 0.0,                          # duration
-                row['value'],                 # body_weight (also store here)
+                row['value'],                 # body_weight (also store here for the weight entry itself)
                 None,                         # category
                 None,                         # image
                 None,                         # incline
@@ -108,9 +115,12 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
                 weights_skipped += 1
 
         print(f"Finished migrating body weight: {weights_migrated} migrated, {weights_skipped} skipped.")
+        # Ensure the list is sorted, although the SQL query should already handle this
+        processed_weights_sorted.sort(key=lambda x: x[0])
 
         # 4. Migrate Workout Set Data (Massive `sets` -> Flexify `gym_sets`)
         print("\nMigrating workout set data...")
+        # Make sure to order by created ASC to process chronologically
         cursor_massive.execute("""
             SELECT name, reps, weight, created, unit, hidden, image, minutes, seconds
             FROM sets
@@ -125,47 +135,58 @@ def migrate_data(massive_db_path, flexify_template_path, output_db_path):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
-        # TODO: Optional: Get the latest known body weight for slightly better data
-        # For simplicity here, we'll default body_weight to 0.0 for sets
-        # A more advanced version could query the newly inserted weights.
-        default_body_weight_for_sets = 0.0
+        # --- Body weight lookup logic initialization ---
+        current_weight_index = 0
+        # Default body weight: Use the first recorded weight if available, else 0.0
+        last_known_body_weight = processed_weights_sorted[0][1] if processed_weights_sorted else 0.0
+        print(f"Using initial body weight for sets: {last_known_body_weight}") # Optional: Info message
+        # --- End initialization ---
 
         for row in massive_sets:
-            created_seconds = iso_to_seconds(row['created']) # New line
+            # created_millis = iso_to_millis(row['created']) # Old line
+            created_seconds = iso_to_seconds(row['created']) # Use the corrected function
             if created_seconds is None:
                 print(f"Skipping set entry '{row['name']}' due to invalid date: {row['created']}")
                 sets_skipped += 1
                 continue
 
+            # --- Find the relevant body weight for this set's timestamp ---
+            # Iterate through sorted weights to find the latest one <= set's timestamp
+            while (current_weight_index < len(processed_weights_sorted) and
+                   processed_weights_sorted[current_weight_index][0] <= created_seconds):
+                last_known_body_weight = processed_weights_sorted[current_weight_index][1]
+                current_weight_index += 1
+            # Now last_known_body_weight holds the correct value for this set
+            # --- End body weight lookup ---
+
             # Calculate rest time in milliseconds
             rest_ms = None
             try:
-                # Ensure minutes and seconds are not None before calculation
                 minutes = row['minutes'] if row['minutes'] is not None else 0
                 seconds = row['seconds'] if row['seconds'] is not None else 0
                 if minutes > 0 or seconds > 0:
                      rest_ms = (minutes * 60 + seconds) * 1000
             except TypeError:
                  print(f"Warning: Could not calculate rest time for set '{row['name']}' created {row['created']}. Setting rest_ms to NULL.", file=sys.stderr)
-                 rest_ms = None # Set explicitly to None if calculation fails
+                 rest_ms = None
 
             values = (
                 row['name'],                  # name
-                row['reps'],                  # reps (will be float if stored as REAL)
-                row['weight'],                # weight (will be float if stored as REAL)
-                row['unit'] or 'kg',          # unit (default to kg if NULL)
-                created_seconds,               # created (converted timestamp)
-                row['hidden'],                # hidden (0 or 1)
+                row['reps'],                  # reps
+                row['weight'],                # weight
+                row['unit'] or 'kg',          # unit
+                created_seconds,              # created (in seconds)
+                row['hidden'],                # hidden
                 row['image'],                 # image
-                rest_ms,                      # rest_ms (calculated)
-                default_body_weight_for_sets, # body_weight (defaulting to 0.0)
-                0,                            # cardio (0 = false)
-                None,                         # category (Massive doesn't store this per set)
+                rest_ms,                      # rest_ms
+                last_known_body_weight,       # body_weight (looked up)
+                0,                            # cardio
+                None,                         # category
                 0.0,                          # distance
                 0.0,                          # duration
                 None,                         # incline
-                None,                         # notes (Massive doesn't store this per set)
-                None                          # plan_id (Not migrating plans)
+                None,                         # notes
+                None                          # plan_id
             )
             try:
                 cursor_output.execute(insert_set_sql, values)
