@@ -11,21 +11,6 @@ server <- function(input, output, session) {
     updateSelectInput(session, "calc_exercise", choices = x)
   })
 
-  # Sync the chosen exercise between graph and calc tabs
-  observe({
-    updateSelectInput(session, "exercise", selected = input$calc_exercise)
-  })
-  observe({
-    updateSelectInput(session, "calc_exercise", selected = input$exercise)
-  })
-
-  observe({
-    updateDateInput(session, "regressionStartDate", value = input$calc_regressionStartDate)
-  })
-  observe({
-    updateDateInput(session, "calc_regressionStartDate", value = input$regressionStartDate)
-  })
-
   # Reactive expression for historical max tonnage results
   reactive_tonnage_results <- reactive({
     req(input$exercise) # Ensure input$exercise is available (synced with calc_exercise)
@@ -295,7 +280,8 @@ server <- function(input, output, session) {
     DT::datatable(
       table_data,
       options = list(pageLength = 5),
-      rownames = FALSE
+      rownames = FALSE,
+      caption = input$exercise
     )
   })
 
