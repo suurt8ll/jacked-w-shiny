@@ -29,27 +29,6 @@ ui <- fluidPage(
       plotlyOutput("kehakaalPlot", height = "100%", width = "100%")
     ),
     tabPanel(
-      title = tagList("Activity", icon("bar-chart")),
-      value = "activity",
-      fluidRow(
-        selectInput(
-          "activity_date_range",
-          "Select Date Range:",
-          choices = c(
-            "Past 1 Month" = "1m",
-            "Past 3 Months" = "3m",
-            "Past 6 Months" = "6m",
-            "Past 1 Year" = "1y",
-            "Past 3 Years" = "3y",
-            "Past 5 Years" = "5y",
-            "All Time" = "all"
-          ),
-          selected = "3m"
-        )
-      ),
-      plotlyOutput("activityBarPlot", height = "100%", width = "100%")
-    ),
-    tabPanel(
       title = tagList("Tonnage", icon("bar-chart")),
       value = "maxtonnage",
       fluidRow(

@@ -88,26 +88,6 @@ server <- function(input, output, session) {
     ggplotly(p)
   })
 
-  output$activityBarPlot <- renderPlotly({
-    end_date <- Sys.Date()
-    start_date <- switch(input$activity_date_range,
-      "1m" = end_date %m-% months(1), "3m" = end_date %m-% months(3),
-      "6m" = end_date %m-% months(6), "1y" = end_date %m-% years(1),
-      "3y" = end_date %m-% years(3), "5y" = end_date %m-% years(5),
-      "all" = min(health_log$Date, na.rm = TRUE), end_date %m-% months(3)
-    )
-
-    filtered_health_log <- health_log %>% filter(Date >= start_date & Date <= end_date)
-    filtered_health_log$Week <- format(as.Date(filtered_health_log$Date), "%Y-%U")
-    weekly_sums <- filtered_health_log %>% group_by(Week) %>% summarise(WeeklySum = sum(ActiveMinutes, na.rm = TRUE))
-
-    p <- ggplot(weekly_sums, aes(x = Week, y = WeeklySum)) +
-      geom_bar(stat = "identity", fill = "purple") +
-      labs(title = "Weekly Active Minutes", x = "Week", y = "Total Active Minutes") +
-      theme(axis.text.x = element_text(angle = 90, hjust = 1))
-    ggplotly(p)
-  })
-
   output$maxTonnagePlot <- renderPlotly({
     results <- reactive_tonnage_results()
     regression_start_date <- input$regressionStartDate # Get the date for subtitle
