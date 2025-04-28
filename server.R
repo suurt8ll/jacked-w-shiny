@@ -164,6 +164,78 @@ server <- function(input, output, session) {
     ggplotly(p)
   })
 
+  output$repTonnagePlot <- renderPlotly({
+    req(input$exercise) # Ensure an exercise is selected
+
+    # 1. Filter data for the selected exercise
+    exercise_data <- merged_df %>%
+      filter(name == input$exercise)
+
+    # Handle case where there's no data
+    if (nrow(exercise_data) == 0) {
+      return(plotly_empty(type = "scatter", mode = "markers") %>%
+               layout(title = paste("No data available for", input$exercise)))
+    }
+
+    # 2. Calculate effective_weight and single_set_tonnage for each set
+    rep_tonnage_data <- exercise_data %>%
+      mutate(
+        effective_weight = (isBW * (bwMultiplier * BodyWeight_MA) + weight),
+        single_set_tonnage = reps * effective_weight
+      ) %>%
+      filter(!is.na(single_set_tonnage) & !is.na(effective_weight)) # Ensure calculations are valid
+
+    # Handle case where no valid tonnage could be calculated
+    if (nrow(rep_tonnage_data) == 0) {
+      return(plotly_empty(type = "scatter", mode = "markers") %>%
+               layout(title = paste("Could not calculate tonnage for", input$exercise, "(check data)")))
+    }
+
+    # 3. Find the specific record (row) with the max tonnage for each rep count
+    rep_tonnage_peaks <- rep_tonnage_data %>%
+      group_by(reps) %>%
+      # Keep the single row corresponding to the max tonnage for that rep count.
+      # If there are ties (same max tonnage on different dates),
+      # this keeps the one with the highest tonnage (which will be the same)
+      # and slice_max breaks ties by keeping the first one encountered in the data.
+      # To keep the *most recent* tie, you could arrange by date descending first
+      # or add date to order_by in slice_max. Let's keep it simple for now.
+      slice_max(order_by = single_set_tonnage, n = 1, with_ties = FALSE) %>%
+      ungroup() %>% # Crucial to ungroup after slicing
+      filter(reps > 0) %>% # Optional filter
+      arrange(reps) # Order by reps for plotting line correctly
+
+    # Handle case where filtering leaves no data
+    if (nrow(rep_tonnage_peaks) == 0) {
+      return(plotly_empty(type = "scatter", mode = "markers") %>%
+               layout(title = paste("No valid rep records > 0 found for", input$exercise)))
+    }
+
+    # 4. Create the plot, mapping tooltip info to the 'text' aesthetic
+    p <- ggplot(rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage)) + # Y-axis is the max tonnage
+      geom_line(color = "cyan", group = 1) +
+      geom_point(
+        aes(text = paste( # Define the tooltip text using paste()
+          "Reps:", reps,
+          "<br>Max Tonnage:", round(single_set_tonnage, 1), "kg", # Use the tonnage from the record row
+          "<br>Effective Weight:", round(effective_weight, 1), "kg", # Use effective_weight from the record row
+          "<br>Date:", format(date, "%Y-%m-%d") # Use date from the record row, formatted
+        )),
+        color = "cyan", size = 2.5
+      ) +
+      labs(
+        title = paste("Historical Max Single-Set Tonnage per Rep Count:", input$exercise),
+        subtitle = "Hover over points for weight and date details", # Updated subtitle
+        x = "Repetitions per Set",
+        y = "Max Historical Tonnage for this Rep Count (kg)"
+      ) +
+      scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks)))))
+
+    # 5. Convert to Plotly, telling it to use the 'text' aesthetic for tooltips
+    ggplotly(p, tooltip = "text")
+
+  })
+
   output$calc_reps <- DT::renderDataTable({
     # Get historical results
     results <- reactive_tonnage_results()

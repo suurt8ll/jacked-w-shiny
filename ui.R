@@ -81,6 +81,12 @@ ui <- fluidPage(
       plotlyOutput("maxTonnagePlot", height = "100%", width = "100%")
     ),
     tabPanel(
+      title = tagList("Rep Tonnage Peaks", icon("chart-line")), # New Title and Icon
+      value = "rep_peaks", # Unique value for this tab
+      # Note: No new inputs needed here, it uses the synced exercise input
+      plotlyOutput("repTonnagePlot", height = "100%", width = "100%") # New plot output ID
+    ),
+    tabPanel(
       title = tagList("Calculator", icon("bar-chart")),
       value = "calc",
       # --- NEW: Row for inputs ---
