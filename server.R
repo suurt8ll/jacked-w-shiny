@@ -1,19 +1,41 @@
 #---- Shiny server ----
 server <- function(input, output, session) {
-  # Filter the exercise choice list based on chosen date
+  # Filter the exercise choice list based on chosen date AND sort by recency
   observe({
-    if (length(input$date) != 0) {
-      x <- merged_df %>% filter(date == input$date) %>% pull(name) %>% unique()
+    # 1. Calculate the last performed date for ALL exercises
+    # Ensure 'date' column is Date type if not already
+    exercise_last_performed <- merged_df %>%
+      filter(!is.na(date)) %>% # Avoid issues if date is NA
+      group_by(name) %>%
+      summarise(last_date = max(date, na.rm = TRUE), .groups = 'drop') %>%
+      arrange(desc(last_date)) # Sort by most recent date first
+
+    # 2. Get the globally sorted list of exercise names
+    sorted_exercise_names <- exercise_last_performed$name
+
+    # 3. Determine the final list based on date filter
+    final_exercise_list <- if (length(input$date) != 0 && !is.na(input$date)) {
+      # Get unique exercises performed on the selected date
+      exercises_on_date <- merged_df %>%
+        filter(date == input$date) %>%
+        pull(name) %>%
+        unique()
+      # Filter the globally sorted list, keeping only those performed on the selected date,
+      # while maintaining the global recency order.
+      sorted_exercise_names[sorted_exercise_names %in% exercises_on_date]
     } else {
-      x <- unique(merged_df$name)
+      # If no date is selected or it's NA, use the full globally sorted list
+      sorted_exercise_names
     }
-    updateSelectInput(session, "exercise", choices = x)
-    updateSelectInput(session, "calc_exercise", choices = x)
+
+    # 4. Update the select input for the Tonnage tab
+    # Use the calculated 'final_exercise_list' for choices
+    updateSelectInput(session, "exercise", choices = final_exercise_list)
   })
 
   # Reactive expression for historical max tonnage results
   reactive_tonnage_results <- reactive({
-    req(input$exercise) # Ensure input$exercise is available (synced with calc_exercise)
+    req(input$exercise) # Ensure input$exercise is available
 
     exercise_data <- merged_df %>%
       filter(name == input$exercise) %>%
