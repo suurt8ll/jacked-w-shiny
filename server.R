@@ -152,7 +152,7 @@ server <- function(input, output, session) {
   })
 
   output$repTonnagePlot <- renderPlotly({
-    req(input$exercise) # Ensure an exercise is selected
+    req(input$exercise)
 
     # 1. Filter data for the selected exercise
     exercise_data <- merged_df %>%
@@ -192,8 +192,8 @@ server <- function(input, output, session) {
                layout(title = paste("No valid rep records > 0 found for", input$exercise)))
     }
 
-    # --- Add Polynomial Regression through (0,0) ---
-    poly_degree <- 2 # You can change this value
+    # Add Polynomial Regression through (0,0)
+    poly_degree <- 2
     add_regression <- FALSE
     r_squared_text <- ""
     regression_model <- NULL # Initialize model variable
@@ -216,10 +216,9 @@ server <- function(input, output, session) {
           r_squared_text <- sprintf("R\u00B2 (0,0) = %.2f (Degree %d)", r_squared, poly_degree)
           add_regression <- TRUE
 
-          # --- Generate Prediction Data for Hover ---
+          # Generate Prediction Data for Hover
           # Create a sequence of reps for prediction, starting from 0
-          # Extend slightly beyond max data rep or at least 10
-          max_rep_plot <- max(10, max(rep_tonnage_peaks$reps) * 1.05)
+          max_rep_plot <- max(rep_tonnage_peaks$reps)
           pred_reps <- seq(0, max_rep_plot, length.out = 100) # Generate 100 points for a smooth line
 
           # Create newdata frame for prediction
@@ -249,8 +248,6 @@ server <- function(input, output, session) {
             pred_tonnage = pred_tonnage,
             hover_text = hover_texts
           )
-          # --- End Prediction Data Generation ---
-
         } else {
           warning("Total Sum of Squares is zero, cannot calculate R-squared (0,0).")
         }
@@ -266,8 +263,6 @@ server <- function(input, output, session) {
                     poly_degree,
                     ". Skipping regression.", sep = ""))
     }
-    # --- End Polynomial Regression Calculation ---
-
 
     # 4. Create the BASE plot (without geom_smooth)
     p <- ggplot(rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage)) +
@@ -286,7 +281,7 @@ server <- function(input, output, session) {
       ) +
       labs(
         title = paste("Historical Max Single-Set Tonnage per Rep Count:", input$exercise),
-        subtitle = "Hover over points for details, hover over line for predictions", # Updated subtitle
+        subtitle = "Hover over points for details, hover over line for predictions",
         x = "Repetitions per Set",
         y = "Max Historical Tonnage for this Rep Count (kg)"
       ) +
@@ -294,7 +289,7 @@ server <- function(input, output, session) {
                          limits = c(0, NA)) + # Ensure x-axis starts at 0
       scale_y_continuous(limits = c(0, NA)) # Ensure y-axis starts at 0
 
-    # --- Add R-squared Text Annotation if calculated ---
+    # Add R-squared Text Annotation if calculated
     # This annotation is added to the ggplot object before conversion
     if (add_regression) {
       p <- p +
@@ -306,18 +301,15 @@ server <- function(input, output, session) {
                          max(prediction_data$pred_tonnage, na.rm = TRUE)) * 0.95,
                  label = r_squared_text,
                  hjust = 0, vjust = 1, # Align text to be top-left
-                 color = "blue",
+                 color = "white",
                  size = 3.5)
     }
-    # --- End Add Annotation ---
-
 
     # 5. Convert to Plotly, telling it to use the 'text' aesthetic for the points
     # The base ggplot object 'p' no longer contains geom_smooth
     pl <- ggplotly(p, tooltip = "text")
 
-
-    # --- Add Regression Line Trace Manually to Plotly Object ---
+    # Add Regression Line Trace Manually to Plotly Object
     if (add_regression && !is.null(prediction_data)) {
       pl <- pl %>%
         add_trace(
@@ -332,13 +324,10 @@ server <- function(input, output, session) {
           name = sprintf("Prediction (Deg %d)", poly_degree) # Name for legend
         )
     }
-    # --- End Add Regression Trace ---
 
-    # 6. Final Layout Adjustments (Optional)
+    # 6. Final Layout Adjustments
     pl <- pl %>% layout(hovermode = "closest",
                         legend = list(x = 0.01, y = 0.99, bgcolor = "rgba(255,255,255,0.6)")) # Position legend
-
-    # Return the final plotly object
     pl
 
   })
