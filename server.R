@@ -204,8 +204,7 @@ server <- function(input, output, session) {
 
     # Add Polynomial Regression through (0,0)
     poly_degree <- 2
-    add_regression <- FALSE
-    r_squared_text <- ""
+    add_regression <- FALSE # Flag to control adding the regression line
     regression_model <- NULL # Initialize model variable
     prediction_data <- NULL # Initialize prediction data frame
 
@@ -217,50 +216,42 @@ server <- function(input, output, session) {
       tryCatch({
         regression_model <- lm(as.formula(formula_str_lm), data = rep_tonnage_peaks)
 
-        # Calculate R-squared (0,0) manually
-        ssr <- sum(residuals(regression_model)^2)
-        tss_00 <- sum(rep_tonnage_peaks$single_set_tonnage^2)
+        # If model fits successfully, proceed to generate prediction data
+        add_regression <- TRUE # Set flag to TRUE if lm call succeeds
 
-        if (tss_00 > 0) {
-          r_squared <- 1 - (ssr / tss_00)
-          r_squared_text <- sprintf("R\u00B2 (0,0) = %.2f (Degree %d)", r_squared, poly_degree)
-          add_regression <- TRUE
+        # Generate Prediction Data for Hover
+        # Create a sequence of reps for prediction, starting from 0
+        max_rep_plot <- max(rep_tonnage_peaks$reps)
+        pred_reps <- seq(0, max_rep_plot, length.out = 100) # Generate 100 points for a smooth line
 
-          # Generate Prediction Data for Hover
-          # Create a sequence of reps for prediction, starting from 0
-          max_rep_plot <- max(rep_tonnage_peaks$reps)
-          pred_reps <- seq(0, max_rep_plot, length.out = 100) # Generate 100 points for a smooth line
+        # Create newdata frame for prediction
+        newdata <- data.frame(reps = pred_reps)
 
-          # Create newdata frame for prediction
-          newdata <- data.frame(reps = pred_reps)
+        # Predict tonnage
+        pred_tonnage <- predict(regression_model, newdata = newdata)
+        # Ensure predicted tonnage at reps=0 is exactly 0 (it should be due to +0 in formula)
+        pred_tonnage[newdata$reps == 0] <- 0
+        # Prevent negative predicted tonnage (doesn't make physical sense)
+        pred_tonnage[pred_tonnage < 0] <- 0
 
-          # Predict tonnage
-          pred_tonnage <- predict(regression_model, newdata = newdata)
-          # Ensure predicted tonnage at reps=0 is exactly 0 (it should be due to +0 in formula)
-          pred_tonnage[newdata$reps == 0] <- 0
-          # Prevent negative predicted tonnage (doesn't make physical sense)
-          pred_tonnage[pred_tonnage < 0] <- 0
+        # Calculate predicted effective weight: tonnage / reps
+        # Handle division by zero for reps = 0
+        pred_effective_weight <- ifelse(newdata$reps == 0, 0, pred_tonnage / newdata$reps)
 
-          # Calculate predicted effective weight: tonnage / reps
-          # Handle division by zero for reps = 0
-          pred_effective_weight <- ifelse(newdata$reps == 0, 0, pred_tonnage / newdata$reps)
+        # Create the hover text
+        hover_texts <- paste(
+          "Predicted Reps:", round(pred_reps, 2),
+          "<br>Predicted Tonnage:", round(pred_tonnage, 1), "kg",
+          "<br>Predicted Eff. Weight:", round(pred_effective_weight, 1), "kg"
+        )
 
-          # Create the hover text
-          hover_texts <- paste(
-            "Predicted Reps:", round(pred_reps, 2),
-            "<br>Predicted Tonnage:", round(pred_tonnage, 1), "kg",
-            "<br>Predicted Eff. Weight:", round(pred_effective_weight, 1), "kg"
-          )
+        # Store prediction data
+        prediction_data <- data.frame(
+          pred_reps = pred_reps,
+          pred_tonnage = pred_tonnage,
+          hover_text = hover_texts
+        )
 
-          # Store prediction data
-          prediction_data <- data.frame(
-            pred_reps = pred_reps,
-            pred_tonnage = pred_tonnage,
-            hover_text = hover_texts
-          )
-        } else {
-          warning("Total Sum of Squares is zero, cannot calculate R-squared (0,0).")
-        }
 
       }, error = function(e) {
         warning("Could not fit regression model: ", e$message)
@@ -293,30 +284,6 @@ server <- function(input, output, session) {
       scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks) + 1))),
                          limits = c(0, NA)) + # Ensure x-axis starts at 0
       scale_y_continuous(limits = c(0, NA)) # Ensure y-axis starts at 0
-
-    # Add R-squared Text Annotation if calculated
-    # This annotation is added to the ggplot object before conversion
-    if (add_regression) {
-      # Find a suitable y-position for the annotation
-      max_y_for_annotation <- max(rep_tonnage_peaks$single_set_tonnage, na.rm = TRUE)
-      if (!is.null(prediction_data) && nrow(prediction_data) > 0) {
-          max_y_for_annotation <- max(max_y_for_annotation, max(prediction_data$pred_tonnage, na.rm = TRUE), na.rm = TRUE)
-      }
-      # Ensure there's a valid max_y, default to 1 if not
-      if (!is.finite(max_y_for_annotation) || max_y_for_annotation == 0) max_y_for_annotation <- 1
-      annotation_y_pos <- max_y_for_annotation * 0.95 # Position near the top
-
-      p <- p +
-        annotate("text",
-                 # Position near origin
-                 x = 0,
-                 # Position near top, relative to max data OR prediction
-                 y = annotation_y_pos,
-                 label = r_squared_text,
-                 hjust = 0, vjust = 1, # Align text to be top-left
-                 color = "white",
-                 size = 3.5)
-    }
 
     # 5. Convert to Plotly
     # Do NOT specify tooltip = "text" here. Plotly will infer tooltips for the line
