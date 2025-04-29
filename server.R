@@ -193,58 +193,71 @@ server <- function(input, output, session) {
     }
 
     # --- Add Polynomial Regression through (0,0) ---
-    # Define the polynomial degree (e.g., 2 for quadratic, 3 for cubic)
     poly_degree <- 2 # You can change this value
-
-    # Variables to store regression results and control plotting
     add_regression <- FALSE
     r_squared_text <- ""
+    regression_model <- NULL # Initialize model variable
+    prediction_data <- NULL # Initialize prediction data frame
 
-    # Need at least degree + 1 points for a polynomial of degree 'degree'.
-    # Forcing through (0,0) doesn't change the minimum number of *data* points needed
-    # for a unique fit of the remaining coefficients.
     if (nrow(rep_tonnage_peaks) > poly_degree) {
-
       # Construct the formula string for lm (using actual column names)
-      # We use I(reps^k) to ensure powers are treated correctly and add + 0 to remove intercept
-      formula_str_lm <- paste("single_set_tonnage ~ reps",
-                              paste0(" + I(reps^", 2:poly_degree, ")", collapse = ""),
-                              "+ 0")
-      if (poly_degree == 1) { # Special case for linear fit through 0
-          formula_str_lm <- "single_set_tonnage ~ reps + 0"
-      }
+      formula_terms <- paste0("I(reps^", 1:poly_degree, ")", collapse = " + ")
+      formula_str_lm <- paste("single_set_tonnage ~", formula_terms, "+ 0")
 
-      # Construct the formula string for geom_smooth (using y and x aesthetics)
-      formula_str_smooth <- paste("y ~ x",
-                                  paste0(" + I(x^", 2:poly_degree, ")", collapse = ""),
-                                  "+ 0")
-      if (poly_degree == 1) { # Special case for linear fit through 0
-          formula_str_smooth <- "y ~ x + 0"
-      }
-
-
-      # Attempt to fit the linear model (polynomial is a type of linear model)
-      # Use tryCatch in case lm fails for unexpected data issues
       tryCatch({
         regression_model <- lm(as.formula(formula_str_lm), data = rep_tonnage_peaks)
 
-        # Calculate R-squared (0,0) manually for models without intercept
+        # Calculate R-squared (0,0) manually
         ssr <- sum(residuals(regression_model)^2)
         tss_00 <- sum(rep_tonnage_peaks$single_set_tonnage^2)
 
-        # Avoid division by zero if all tonnage values are 0 (unlikely but safe)
         if (tss_00 > 0) {
-           r_squared <- 1 - (ssr / tss_00)
-           # Format the R-squared text
-           r_squared_text <- sprintf("R\u00B2 (0,0) = %.2f (Degree %d)", r_squared, poly_degree)
-           add_regression <- TRUE # Set flag to true if successful
+          r_squared <- 1 - (ssr / tss_00)
+          r_squared_text <- sprintf("R\u00B2 (0,0) = %.2f (Degree %d)", r_squared, poly_degree)
+          add_regression <- TRUE
+
+          # --- Generate Prediction Data for Hover ---
+          # Create a sequence of reps for prediction, starting from 0
+          # Extend slightly beyond max data rep or at least 10
+          max_rep_plot <- max(10, max(rep_tonnage_peaks$reps) * 1.05)
+          pred_reps <- seq(0, max_rep_plot, length.out = 100) # Generate 100 points for a smooth line
+
+          # Create newdata frame for prediction
+          newdata <- data.frame(reps = pred_reps)
+
+          # Predict tonnage
+          pred_tonnage <- predict(regression_model, newdata = newdata)
+          # Ensure predicted tonnage at reps=0 is exactly 0 (it should be due to +0 in formula)
+          pred_tonnage[newdata$reps == 0] <- 0
+          # Prevent negative predicted tonnage (doesn't make physical sense)
+          pred_tonnage[pred_tonnage < 0] <- 0
+
+          # Calculate predicted effective weight: tonnage / reps
+          # Handle division by zero for reps = 0
+          pred_effective_weight <- ifelse(newdata$reps == 0, 0, pred_tonnage / newdata$reps)
+
+          # Create the hover text
+          hover_texts <- paste(
+            "Predicted Reps:", round(pred_reps, 2),
+            "<br>Predicted Tonnage:", round(pred_tonnage, 1), "kg",
+            "<br>Predicted Eff. Weight:", round(pred_effective_weight, 1), "kg"
+          )
+
+          # Store prediction data
+          prediction_data <- data.frame(
+            pred_reps = pred_reps,
+            pred_tonnage = pred_tonnage,
+            hover_text = hover_texts
+          )
+          # --- End Prediction Data Generation ---
+
         } else {
-           warning("Total Sum of Squares is zero, cannot calculate R-squared (0,0).")
+          warning("Total Sum of Squares is zero, cannot calculate R-squared (0,0).")
         }
 
       }, error = function(e) {
         warning("Could not fit regression model: ", e$message)
-        # add_regression remains FALSE
+        add_regression <- FALSE # Ensure flag is false on error
       })
     } else {
       warning(paste("Not enough data points (",
@@ -256,16 +269,14 @@ server <- function(input, output, session) {
     # --- End Polynomial Regression Calculation ---
 
 
-    # 4. Create the plot, mapping tooltip info to the 'text' aesthetic
+    # 4. Create the BASE plot (without geom_smooth)
     p <- ggplot(rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage)) +
-      # Add a point at (0,0) to ensure it's included in axis limits
-      # This point won't have tooltip info from the main data
-      geom_point(data = data.frame(reps = 0, single_set_tonnage = 0),
+      geom_point(data = data.frame(reps = 0, single_set_tonnage = 0), # Add (0,0) point
                  aes(x = reps, y = single_set_tonnage),
-                 color = "grey", size = 2, alpha = 0.5) + # Make it subtle
-      geom_line(color = "purple", group = 1) +
-      geom_point(
-        aes(text = paste( # Define the tooltip text using paste()
+                 color = "grey", size = 2, alpha = 0.5, inherit.aes = FALSE) + # Use inherit.aes=FALSE
+      geom_line(color = "purple", group = 1) + # Line connecting actual max points
+      geom_point( # Actual max points
+        aes(text = paste( # Tooltip for actual points
           "Reps:", reps,
           "<br>Max Tonnage:", round(single_set_tonnage, 1), "kg",
           "<br>Effective Weight:", round(effective_weight, 1), "kg",
@@ -275,41 +286,60 @@ server <- function(input, output, session) {
       ) +
       labs(
         title = paste("Historical Max Single-Set Tonnage per Rep Count:", input$exercise),
-        subtitle = "Hover over points for weight and date details",
+        subtitle = "Hover over points for details, hover over line for predictions", # Updated subtitle
         x = "Repetitions per Set",
         y = "Max Historical Tonnage for this Rep Count (kg)"
       ) +
-      # Ensure axes start at 0
-      scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks) + 1))), # Add 1 for the (0,0) point
+      scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks) + 1))),
                          limits = c(0, NA)) + # Ensure x-axis starts at 0
       scale_y_continuous(limits = c(0, NA)) # Ensure y-axis starts at 0
 
-
-    # --- Add Regression Line and Text if calculated ---
+    # --- Add R-squared Text Annotation if calculated ---
+    # This annotation is added to the ggplot object before conversion
     if (add_regression) {
       p <- p +
-        # Add the polynomial regression line forced through (0,0)
-        geom_smooth(method = "lm", # Use linear model method
-                    formula = as.formula(formula_str_smooth), # Specify polynomial formula with + 0
-                    se = FALSE, # Do not show standard error band
-                    color = "blue", # Color for the regression line
-                    linetype = "dashed", # Optional: make it dashed
-                    fullrange = TRUE) + # Extend the line to the edge of the plot, including 0
-        # Add the R-squared text annotation
         annotate("text",
-                 x = min(rep_tonnage_peaks$reps), # Position near the minimum reps value
-                 y = max(rep_tonnage_peaks$single_set_tonnage) * 1.05, # Position slightly above max tonnage
+                 # Position near origin
+                 x = 0,
+                 # Position near top, relative to max data OR prediction
+                 y = max(rep_tonnage_peaks$single_set_tonnage,
+                         max(prediction_data$pred_tonnage, na.rm = TRUE)) * 0.95,
                  label = r_squared_text,
-                 hjust = 0, vjust = 1, # Align text to be top-left relative to the point (x,y)
-                 color = "blue", # Match color with the line
-                 size = 3.5) # Adjust text size as needed
+                 hjust = 0, vjust = 1, # Align text to be top-left
+                 color = "blue",
+                 size = 3.5)
     }
-    # --- End Add Regression ---
+    # --- End Add Annotation ---
 
 
-    # 5. Convert to Plotly, telling it to use the 'text' aesthetic for tooltips
-    ggplotly(p, tooltip = "text") %>%
-      layout(hovermode = "closest") # Optional: improve hover behavior
+    # 5. Convert to Plotly, telling it to use the 'text' aesthetic for the points
+    # The base ggplot object 'p' no longer contains geom_smooth
+    pl <- ggplotly(p, tooltip = "text")
+
+
+    # --- Add Regression Line Trace Manually to Plotly Object ---
+    if (add_regression && !is.null(prediction_data)) {
+      pl <- pl %>%
+        add_trace(
+          data = prediction_data, # Use the generated prediction data
+          x = ~pred_reps,
+          y = ~pred_tonnage,
+          type = "scatter",
+          mode = "lines",
+          line = list(color = "blue", dash = "dash"), # Style the line
+          hoverinfo = "text", # Use the text specified below for hover
+          text = ~hover_text, # Assign the pre-formatted hover text
+          name = sprintf("Prediction (Deg %d)", poly_degree) # Name for legend
+        )
+    }
+    # --- End Add Regression Trace ---
+
+    # 6. Final Layout Adjustments (Optional)
+    pl <- pl %>% layout(hovermode = "closest",
+                        legend = list(x = 0.01, y = 0.99, bgcolor = "rgba(255,255,255,0.6)")) # Position legend
+
+    # Return the final plotly object
+    pl
 
   })
 
