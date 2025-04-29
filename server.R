@@ -183,7 +183,7 @@ server <- function(input, output, session) {
       group_by(reps) %>%
       slice_max(order_by = single_set_tonnage, n = 1, with_ties = FALSE) %>%
       ungroup() %>%
-      filter(reps > 0) %>%
+      filter(reps > 0) %>% # Keep only reps > 0 for peak data
       arrange(reps)
 
     # Handle case where filtering leaves no data
@@ -192,7 +192,7 @@ server <- function(input, output, session) {
                layout(title = paste("No valid rep records > 0 found for", input$exercise)))
     }
 
-    # --- Add Polynomial Regression ---
+    # --- Add Polynomial Regression through (0,0) ---
     # Define the polynomial degree (e.g., 2 for quadratic, 3 for cubic)
     poly_degree <- 2 # You can change this value
 
@@ -200,17 +200,48 @@ server <- function(input, output, session) {
     add_regression <- FALSE
     r_squared_text <- ""
 
-    # Check if there are enough data points to fit the polynomial model
-    # Need at least degree + 1 points for a polynomial of degree 'degree'
+    # Need at least degree + 1 points for a polynomial of degree 'degree'.
+    # Forcing through (0,0) doesn't change the minimum number of *data* points needed
+    # for a unique fit of the remaining coefficients.
     if (nrow(rep_tonnage_peaks) > poly_degree) {
+
+      # Construct the formula string for lm (using actual column names)
+      # We use I(reps^k) to ensure powers are treated correctly and add + 0 to remove intercept
+      formula_str_lm <- paste("single_set_tonnage ~ reps",
+                              paste0(" + I(reps^", 2:poly_degree, ")", collapse = ""),
+                              "+ 0")
+      if (poly_degree == 1) { # Special case for linear fit through 0
+          formula_str_lm <- "single_set_tonnage ~ reps + 0"
+      }
+
+      # Construct the formula string for geom_smooth (using y and x aesthetics)
+      formula_str_smooth <- paste("y ~ x",
+                                  paste0(" + I(x^", 2:poly_degree, ")", collapse = ""),
+                                  "+ 0")
+      if (poly_degree == 1) { # Special case for linear fit through 0
+          formula_str_smooth <- "y ~ x + 0"
+      }
+
+
       # Attempt to fit the linear model (polynomial is a type of linear model)
       # Use tryCatch in case lm fails for unexpected data issues
       tryCatch({
-        regression_model <- lm(single_set_tonnage ~ poly(reps, poly_degree), data = rep_tonnage_peaks)
-        r_squared <- summary(regression_model)$r.squared
-        # Format the R-squared text
-        r_squared_text <- sprintf("R\u00B2 = %.2f (Degree %d)", r_squared, poly_degree)
-        add_regression <- TRUE # Set flag to true if successful
+        regression_model <- lm(as.formula(formula_str_lm), data = rep_tonnage_peaks)
+
+        # Calculate R-squared (0,0) manually for models without intercept
+        ssr <- sum(residuals(regression_model)^2)
+        tss_00 <- sum(rep_tonnage_peaks$single_set_tonnage^2)
+
+        # Avoid division by zero if all tonnage values are 0 (unlikely but safe)
+        if (tss_00 > 0) {
+           r_squared <- 1 - (ssr / tss_00)
+           # Format the R-squared text
+           r_squared_text <- sprintf("R\u00B2 (0,0) = %.2f (Degree %d)", r_squared, poly_degree)
+           add_regression <- TRUE # Set flag to true if successful
+        } else {
+           warning("Total Sum of Squares is zero, cannot calculate R-squared (0,0).")
+        }
+
       }, error = function(e) {
         warning("Could not fit regression model: ", e$message)
         # add_regression remains FALSE
@@ -227,6 +258,11 @@ server <- function(input, output, session) {
 
     # 4. Create the plot, mapping tooltip info to the 'text' aesthetic
     p <- ggplot(rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage)) +
+      # Add a point at (0,0) to ensure it's included in axis limits
+      # This point won't have tooltip info from the main data
+      geom_point(data = data.frame(reps = 0, single_set_tonnage = 0),
+                 aes(x = reps, y = single_set_tonnage),
+                 color = "grey", size = 2, alpha = 0.5) + # Make it subtle
       geom_line(color = "purple", group = 1) +
       geom_point(
         aes(text = paste( # Define the tooltip text using paste()
@@ -243,21 +279,26 @@ server <- function(input, output, session) {
         x = "Repetitions per Set",
         y = "Max Historical Tonnage for this Rep Count (kg)"
       ) +
-      scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks)))))
+      # Ensure axes start at 0
+      scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks) + 1))), # Add 1 for the (0,0) point
+                         limits = c(0, NA)) + # Ensure x-axis starts at 0
+      scale_y_continuous(limits = c(0, NA)) # Ensure y-axis starts at 0
+
 
     # --- Add Regression Line and Text if calculated ---
     if (add_regression) {
       p <- p +
-        # Add the polynomial regression line
+        # Add the polynomial regression line forced through (0,0)
         geom_smooth(method = "lm", # Use linear model method
-                    formula = y ~ poly(x, poly_degree), # Specify polynomial formula
+                    formula = as.formula(formula_str_smooth), # Specify polynomial formula with + 0
                     se = FALSE, # Do not show standard error band
                     color = "blue", # Color for the regression line
-                    linetype = "dashed") + # Optional: make it dashed
+                    linetype = "dashed", # Optional: make it dashed
+                    fullrange = TRUE) + # Extend the line to the edge of the plot, including 0
         # Add the R-squared text annotation
         annotate("text",
                  x = min(rep_tonnage_peaks$reps), # Position near the minimum reps value
-                 y = max(rep_tonnage_peaks$single_set_tonnage), # Position near the maximum tonnage value
+                 y = max(rep_tonnage_peaks$single_set_tonnage) * 1.05, # Position slightly above max tonnage
                  label = r_squared_text,
                  hjust = 0, vjust = 1, # Align text to be top-left relative to the point (x,y)
                  color = "blue", # Match color with the line
