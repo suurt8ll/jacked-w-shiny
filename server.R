@@ -181,16 +181,10 @@ server <- function(input, output, session) {
     # 3. Find the specific record (row) with the max tonnage for each rep count
     rep_tonnage_peaks <- rep_tonnage_data %>%
       group_by(reps) %>%
-      # Keep the single row corresponding to the max tonnage for that rep count.
-      # If there are ties (same max tonnage on different dates),
-      # this keeps the one with the highest tonnage (which will be the same)
-      # and slice_max breaks ties by keeping the first one encountered in the data.
-      # To keep the *most recent* tie, you could arrange by date descending first
-      # or add date to order_by in slice_max. Let's keep it simple for now.
       slice_max(order_by = single_set_tonnage, n = 1, with_ties = FALSE) %>%
-      ungroup() %>% # Crucial to ungroup after slicing
-      filter(reps > 0) %>% # Optional filter
-      arrange(reps) # Order by reps for plotting line correctly
+      ungroup() %>%
+      filter(reps > 0) %>%
+      arrange(reps)
 
     # Handle case where filtering leaves no data
     if (nrow(rep_tonnage_peaks) == 0) {
@@ -198,28 +192,83 @@ server <- function(input, output, session) {
                layout(title = paste("No valid rep records > 0 found for", input$exercise)))
     }
 
+    # --- Add Polynomial Regression ---
+    # Define the polynomial degree (e.g., 2 for quadratic, 3 for cubic)
+    poly_degree <- 2 # You can change this value
+
+    # Variables to store regression results and control plotting
+    add_regression <- FALSE
+    r_squared_text <- ""
+
+    # Check if there are enough data points to fit the polynomial model
+    # Need at least degree + 1 points for a polynomial of degree 'degree'
+    if (nrow(rep_tonnage_peaks) > poly_degree) {
+      # Attempt to fit the linear model (polynomial is a type of linear model)
+      # Use tryCatch in case lm fails for unexpected data issues
+      tryCatch({
+        regression_model <- lm(single_set_tonnage ~ poly(reps, poly_degree), data = rep_tonnage_peaks)
+        r_squared <- summary(regression_model)$r.squared
+        # Format the R-squared text
+        r_squared_text <- sprintf("R\u00B2 = %.2f (Degree %d)", r_squared, poly_degree)
+        add_regression <- TRUE # Set flag to true if successful
+      }, error = function(e) {
+        warning("Could not fit regression model: ", e$message)
+        # add_regression remains FALSE
+      })
+    } else {
+      warning(paste("Not enough data points (",
+                    nrow(rep_tonnage_peaks),
+                    ") for polynomial degree ",
+                    poly_degree,
+                    ". Skipping regression.", sep = ""))
+    }
+    # --- End Polynomial Regression Calculation ---
+
+
     # 4. Create the plot, mapping tooltip info to the 'text' aesthetic
-    p <- ggplot(rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage)) + # Y-axis is the max tonnage
-      geom_line(color = "cyan", group = 1) +
+    p <- ggplot(rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage)) +
+      geom_line(color = "purple", group = 1) +
       geom_point(
         aes(text = paste( # Define the tooltip text using paste()
           "Reps:", reps,
-          "<br>Max Tonnage:", round(single_set_tonnage, 1), "kg", # Use the tonnage from the record row
-          "<br>Effective Weight:", round(effective_weight, 1), "kg", # Use effective_weight from the record row
-          "<br>Date:", format(date, "%Y-%m-%d") # Use date from the record row, formatted
+          "<br>Max Tonnage:", round(single_set_tonnage, 1), "kg",
+          "<br>Effective Weight:", round(effective_weight, 1), "kg",
+          "<br>Date:", format(date, "%Y-%m-%d")
         )),
-        color = "cyan", size = 2.5
+        color = "purple", size = 2.5
       ) +
       labs(
         title = paste("Historical Max Single-Set Tonnage per Rep Count:", input$exercise),
-        subtitle = "Hover over points for weight and date details", # Updated subtitle
+        subtitle = "Hover over points for weight and date details",
         x = "Repetitions per Set",
         y = "Max Historical Tonnage for this Rep Count (kg)"
       ) +
       scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks)))))
 
+    # --- Add Regression Line and Text if calculated ---
+    if (add_regression) {
+      p <- p +
+        # Add the polynomial regression line
+        geom_smooth(method = "lm", # Use linear model method
+                    formula = y ~ poly(x, poly_degree), # Specify polynomial formula
+                    se = FALSE, # Do not show standard error band
+                    color = "blue", # Color for the regression line
+                    linetype = "dashed") + # Optional: make it dashed
+        # Add the R-squared text annotation
+        annotate("text",
+                 x = min(rep_tonnage_peaks$reps), # Position near the minimum reps value
+                 y = max(rep_tonnage_peaks$single_set_tonnage), # Position near the maximum tonnage value
+                 label = r_squared_text,
+                 hjust = 0, vjust = 1, # Align text to be top-left relative to the point (x,y)
+                 color = "blue", # Match color with the line
+                 size = 3.5) # Adjust text size as needed
+    }
+    # --- End Add Regression ---
+
+
     # 5. Convert to Plotly, telling it to use the 'text' aesthetic for tooltips
-    ggplotly(p, tooltip = "text")
+    ggplotly(p, tooltip = "text") %>%
+      layout(hovermode = "closest") # Optional: improve hover behavior
 
   })
 
