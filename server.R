@@ -184,7 +184,17 @@ server <- function(input, output, session) {
       slice_max(order_by = single_set_tonnage, n = 1, with_ties = FALSE) %>%
       ungroup() %>%
       filter(reps > 0) %>% # Keep only reps > 0 for peak data
-      arrange(reps)
+      arrange(reps) %>%
+      # Add the custom tooltip text as a new column
+      mutate(
+        tooltip_text = paste(
+          "Reps:", reps,
+          "<br>Max Tonnage:", round(single_set_tonnage, 1), "kg",
+          "<br>Effective Weight:", round(effective_weight, 1), "kg",
+          "<br>Date:", format(date, "%Y-%m-%d")
+        )
+      )
+
 
     # Handle case where filtering leaves no data
     if (nrow(rep_tonnage_peaks) == 0) {
@@ -264,21 +274,16 @@ server <- function(input, output, session) {
                     ". Skipping regression.", sep = ""))
     }
 
-    # 4. Create the BASE plot (without geom_smooth)
-    p <- ggplot(rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage)) +
+    # 4. Create the BASE plot in ggplot
+    #    - Include the (0,0) point
+    #    - Include the line connecting the actual max points
+    #    - DO NOT include geom_point for rep_tonnage_peaks with aes(text=...) here
+    p <- ggplot() +
       geom_point(data = data.frame(reps = 0, single_set_tonnage = 0), # Add (0,0) point
                  aes(x = reps, y = single_set_tonnage),
                  color = "grey", size = 2, alpha = 0.5, inherit.aes = FALSE) + # Use inherit.aes=FALSE
-      geom_line(color = "purple", group = 1) + # Line connecting actual max points
-      geom_point( # Actual max points
-        aes(text = paste( # Tooltip for actual points
-          "Reps:", reps,
-          "<br>Max Tonnage:", round(single_set_tonnage, 1), "kg",
-          "<br>Effective Weight:", round(effective_weight, 1), "kg",
-          "<br>Date:", format(date, "%Y-%m-%d")
-        )),
-        color = "purple", size = 2.5
-      ) +
+      geom_line(data = rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage), # Line connecting actual max points
+                color = "purple", group = 1) +
       labs(
         title = paste("Historical Max Single-Set Tonnage per Rep Count:", input$exercise),
         subtitle = "Hover over points for details, hover over line for predictions",
@@ -292,22 +297,47 @@ server <- function(input, output, session) {
     # Add R-squared Text Annotation if calculated
     # This annotation is added to the ggplot object before conversion
     if (add_regression) {
+      # Find a suitable y-position for the annotation
+      max_y_for_annotation <- max(rep_tonnage_peaks$single_set_tonnage, na.rm = TRUE)
+      if (!is.null(prediction_data) && nrow(prediction_data) > 0) {
+          max_y_for_annotation <- max(max_y_for_annotation, max(prediction_data$pred_tonnage, na.rm = TRUE), na.rm = TRUE)
+      }
+      # Ensure there's a valid max_y, default to 1 if not
+      if (!is.finite(max_y_for_annotation) || max_y_for_annotation == 0) max_y_for_annotation <- 1
+      annotation_y_pos <- max_y_for_annotation * 0.95 # Position near the top
+
       p <- p +
         annotate("text",
                  # Position near origin
                  x = 0,
                  # Position near top, relative to max data OR prediction
-                 y = max(rep_tonnage_peaks$single_set_tonnage,
-                         max(prediction_data$pred_tonnage, na.rm = TRUE)) * 0.95,
+                 y = annotation_y_pos,
                  label = r_squared_text,
                  hjust = 0, vjust = 1, # Align text to be top-left
                  color = "white",
                  size = 3.5)
     }
 
-    # 5. Convert to Plotly, telling it to use the 'text' aesthetic for the points
-    # The base ggplot object 'p' no longer contains geom_smooth
-    pl <- ggplotly(p, tooltip = "text")
+    # 5. Convert to Plotly
+    # Do NOT specify tooltip = "text" here. Plotly will infer tooltips for the line
+    # and the (0,0) point based on mapped aesthetics (x, y).
+    pl <- ggplotly(p)
+
+    # Use the rep_tonnage_peaks data with the new tooltip_text column
+    if (nrow(rep_tonnage_peaks) > 0) {
+      pl <- pl %>%
+        add_trace(
+          data = rep_tonnage_peaks,
+          x = ~reps,
+          y = ~single_set_tonnage,
+          type = "scatter",
+          mode = "markers", # Add markers
+          marker = list(color = "purple", size = 5), # Match original point style
+          hoverinfo = "text", # Tell plotly to use the 'text' argument for hover
+          text = ~tooltip_text, # Use the pre-calculated tooltip text column
+          name = "Max Records" # Name for legend
+        )
+    }
 
     # Add Regression Line Trace Manually to Plotly Object
     if (add_regression && !is.null(prediction_data)) {
