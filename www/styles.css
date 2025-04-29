@@ -13,6 +13,10 @@
   height: calc(100vh - 160px) !important;
 }
 
+#repTonnagePlot {
+  height: calc(100vh - 160px) !important;
+}
+
 /* --- FIX selectInput() COLORS --- */
 /* Style the selectize input box itself */
 .selectize-input {
