@@ -57,3 +57,4 @@ data/
 
 # Other
 .lintr
+.venv/
