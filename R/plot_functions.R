@@ -1,3 +1,5 @@
+#  ./R/plot_functions.R
+
 render_rep_tonnage_plot <- function(exercise_name, poly_degree = 2) {
     # 1. Filter data for the selected exercise
     exercise_data <- merged_df %>%
@@ -55,32 +57,43 @@ render_rep_tonnage_plot <- function(exercise_name, poly_degree = 2) {
     if (nrow(rep_tonnage_peaks) > poly_degree) {
       # Construct the formula string for lm (using actual column names)
       formula_terms <- paste0("I(reps^", 1:poly_degree, ")", collapse = " + ")
-      formula_str_lm <- paste("single_set_tonnage ~", formula_terms, "+ 0")
+      formula_str_lm <- paste("single_set_tonnage ~", formula_terms, "+ 0") # Force through origin
 
       tryCatch({
+        # Fit the model using data including reps > 0
         regression_model <- lm(as.formula(formula_str_lm), data = rep_tonnage_peaks)
 
         # If model fits successfully, proceed to generate prediction data
         add_regression <- TRUE # Set flag to TRUE if lm call succeeds
 
         # Generate Prediction Data for Hover
-        # Create a sequence of reps for prediction, starting from 0
         max_rep_plot <- max(rep_tonnage_peaks$reps)
-        pred_reps <- seq(0, max_rep_plot, length.out = 100) # Generate 100 points for a smooth line
 
-        # Create newdata frame for prediction
+        # 1. Generate a high-resolution sequence for smoothness (e.g., 200 points)
+        smooth_reps <- seq(0, max_rep_plot, length.out = 200)
+        # 2. Generate a sequence of integers within the range (including 0 for calculation)
+        # Ensure max_rep_plot is at least 0 before flooring
+        integer_reps <- seq(0, floor(max(0, max_rep_plot)), by = 1)
+        # 3. Combine, remove duplicates, and sort
+        pred_reps <- sort(unique(c(smooth_reps, integer_reps)))
+
+        # Create newdata frame for prediction using the combined sequence
         newdata <- data.frame(reps = pred_reps)
 
         # Predict tonnage
         pred_tonnage <- predict(regression_model, newdata = newdata)
         # Ensure predicted tonnage at reps=0 is exactly 0 (it should be due to +0 in formula)
-        pred_tonnage[newdata$reps == 0] <- 0
+        # Find the index corresponding to reps=0 (robust to floating point issues)
+        zero_rep_index <- which(abs(newdata$reps - 0) < 1e-9)
+        if(length(zero_rep_index) > 0) {
+            pred_tonnage[zero_rep_index] <- 0
+        }
         # Prevent negative predicted tonnage (doesn't make physical sense)
         pred_tonnage[pred_tonnage < 0] <- 0
 
         # Calculate predicted effective weight: tonnage / reps
         # Handle division by zero for reps = 0
-        pred_effective_weight <- ifelse(newdata$reps == 0, 0, pred_tonnage / newdata$reps)
+        pred_effective_weight <- ifelse(abs(newdata$reps - 0) < 1e-9, 0, pred_tonnage / newdata$reps)
 
         # Create the hover text
         hover_texts <- paste(
@@ -110,13 +123,7 @@ render_rep_tonnage_plot <- function(exercise_name, poly_degree = 2) {
     }
 
     # 4. Create the BASE plot in ggplot
-    #    - Include the (0,0) point
-    #    - Include the line connecting the actual max points
-    #    - DO NOT include geom_point for rep_tonnage_peaks with aes(text=...) here
     p <- ggplot() +
-      geom_point(data = data.frame(reps = 0, single_set_tonnage = 0), # Add (0,0) point
-                 aes(x = reps, y = single_set_tonnage),
-                 color = "grey", size = 2, alpha = 0.5, inherit.aes = FALSE) + # Use inherit.aes=FALSE
       geom_line(data = rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage), # Line connecting actual max points
                 color = "purple", group = 1) +
       labs(
@@ -130,11 +137,9 @@ render_rep_tonnage_plot <- function(exercise_name, poly_degree = 2) {
       scale_y_continuous(limits = c(0, NA)) # Ensure y-axis starts at 0
 
     # 5. Convert to Plotly
-    # Do NOT specify tooltip = "text" here. Plotly will infer tooltips for the line
-    # and the (0,0) point based on mapped aesthetics (x, y).
     pl <- ggplotly(p)
 
-    # Use the rep_tonnage_peaks data with the new tooltip_text column
+    # Add markers for actual max records
     if (nrow(rep_tonnage_peaks) > 0) {
       pl <- pl %>%
         add_trace(
@@ -142,32 +147,43 @@ render_rep_tonnage_plot <- function(exercise_name, poly_degree = 2) {
           x = ~reps,
           y = ~single_set_tonnage,
           type = "scatter",
-          mode = "markers", # Add markers
-          marker = list(color = "purple", size = 5), # Match original point style
-          hoverinfo = "text", # Tell plotly to use the 'text' argument for hover
-          text = ~tooltip_text, # Use the pre-calculated tooltip text column
-          name = "Max Records" # Name for legend
+          mode = "markers",
+          marker = list(color = "purple", size = 5),
+          hoverinfo = "text",
+          text = ~tooltip_text,
+          name = "Max Records"
         )
     }
 
     # Add Regression Line Trace Manually to Plotly Object
     if (add_regression && !is.null(prediction_data)) {
-      pl <- pl %>%
-        add_trace(
-          data = prediction_data, # Use the generated prediction data
-          x = ~pred_reps,
-          y = ~pred_tonnage,
-          type = "scatter",
-          mode = "lines",
-          line = list(color = "blue", dash = "dash"), # Style the line
-          hoverinfo = "text", # Use the text specified below for hover
-          text = ~hover_text, # Assign the pre-formatted hover text
-          name = sprintf("Prediction (Deg %d)", poly_degree) # Name for legend
-        )
+        # Filter prediction data to only include reps >= 1 for plotting the line
+        # This filter now acts on the combined sequence, ensuring rep=1 is the start if present
+        prediction_data_for_plot <- prediction_data %>%
+                                      filter(pred_reps >= 1) # Filter points for plotting
+
+        # Check if there are still points to plot after filtering
+        if (nrow(prediction_data_for_plot) > 0) {
+            pl <- pl %>%
+                add_trace(
+                    data = prediction_data_for_plot, # Use the filtered data
+                    x = ~pred_reps,
+                    y = ~pred_tonnage,
+                    type = "scatter",
+                    mode = "lines",
+                    line = list(color = "blue", dash = "dash"),
+                    hoverinfo = "text",
+                    text = ~hover_text,
+                    name = sprintf("Prediction (Deg %d)", poly_degree)
+                )
+        } else {
+            warning("No prediction points with reps >= 1 to plot for the regression line.")
+        }
     }
 
-    # 6. Final Layout Adjustments
+
+    # 6. Final Layout Adjustments (no changes here needed)
     pl <- pl %>% layout(hovermode = "closest",
-                        legend = list(x = 0.01, y = 0.99, bgcolor = "rgba(255,255,255,0.6)")) # Position legend
+                        legend = list(x = 0.01, y = 0.99, bgcolor = "rgba(255,255,255,0.6)"))
     pl
 }
