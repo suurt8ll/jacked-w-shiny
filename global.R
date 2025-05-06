@@ -37,6 +37,7 @@ calculate_max_tonnage <- function(data, n) {
 #---- Parameters ----
 # File paths (now using CSVs)
 sets_csv_path <- here("data", "sets.csv")
+bw_csv_path <- here("data", "bw.csv")
 exercise_definitions_csv_path <- here("data", "exercise_definitions.csv")
 
 # Rolling average window size
@@ -44,22 +45,18 @@ rolling_window <- 30
 
 #---- Data loading ----
 
-# TODO User should have an option to reload data directly in app without needing to restart the whole program.
-# ^ Hint: this can be done separately in bash script, user needs to press a key to refresh.
-
-# Load data from CSV files using readr
-sets_raw <- read_csv(sets_csv_path)
-exercise_df <- read_csv(exercise_definitions_csv_path)
+# Load workout data from sets.csv
+workout_sets_raw <- read_csv(sets_csv_path, show_col_types = FALSE)
+# Load bodyweight data from bw.csv
+bodyweight_raw <- read_csv(bw_csv_path, show_col_types = FALSE)
+# Load exercise definitions
+exercise_df <- read_csv(exercise_definitions_csv_path, show_col_types = FALSE)
 
 #---- Data Cleaning and Transformations ----
 
-# Separate workout sets and bodyweight entries from sets_raw
-# Assuming 'Weight' in the 'name' column indicates a bodyweight entry
-workout_sets_raw <- sets_raw %>% filter(name != "Weight")
-bodyweight_raw <- sets_raw %>% filter(name == "Weight")
-
 # Process Bodyweight Data for health_log
 health_log <- bodyweight_raw %>%
+  # Assuming bw.csv has 'created' and 'weight' columns like the original sets.csv entries
   select(created, BodyWeight = weight) %>% # Select relevant columns and rename weight to BodyWeight
   mutate(Date = as.Date(created)) %>%      # Convert created timestamp to Date
   # Handle potential multiple BW entries per day - keep the first one for simplicity
@@ -89,6 +86,8 @@ if (nrow(health_log) > 0 && is.na(tail(health_log$BodyWeight, n = 1))) {
 
 # Interpolate missing bodyweight data and calculate moving average
 # na.approx requires sorted data. Use rule=2 to carry the last observation forward.
+# Ensure health_log is sorted by Date before interpolation
+health_log <- health_log %>% arrange(Date)
 health_log$BodyWeight_interpolated <- na.approx(health_log$BodyWeight, na.rm = FALSE, rule = 2)
 health_log$BodyWeight_MA <- rollapply(
   health_log$BodyWeight_interpolated,
@@ -119,17 +118,8 @@ merged_df <- workout_data %>%
   # Join with health_log on date, bringing in interpolated and MA bodyweight
   left_join(health_log %>% select(Date, BodyWeight_interpolated, BodyWeight_MA), by = c("date" = "Date"))
 
-# Remove rows where weight or reps is missing (same logic as before)
-merged_df <- merged_df %>%
-  filter(!is.na(weight) & !is.na(reps))
-
-# FIXME Exercises not in exercise_df should be omitted.
-# The left_join results in NA values for exercise_df columns if the exercise name
-# from sets.csv is not found in exercise_definitions.csv.
-# We can filter these out based on a key column from exercise_df, e.g., 'isBW'.
-merged_df <- merged_df %>%
-  filter(!is.na(isBW))
-
+# Remove rows where weight or reps is missing
+merged_df <- merged_df %>% filter(!is.na(weight) & !is.na(reps) & !is.na(isBW))
 
 # Clean up temporary data frames
-rm("sets_raw", "workout_sets_raw", "bodyweight_raw", "workout_data")
+rm("workout_sets_raw", "bodyweight_raw")
