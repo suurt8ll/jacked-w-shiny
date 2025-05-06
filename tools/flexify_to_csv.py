@@ -27,9 +27,11 @@ def format_timestamp(unix_timestamp):
 def export_flexify_data(db_path, sets_output_path, bw_output_path):
     """
     Connects to the Flexify database, extracts gym_sets data,
-    and splits it into workout sets and bodyweight CSV files.
+    and splits it into workout sets and bodyweight CSV files,
+    filtering out template entries.
     """
     conn = None
+    skipped_template_count = 0 # Counter for skipped rows
     try:
         # Ensure the output directory exists
         output_dir = os.path.dirname(sets_output_path)
@@ -43,7 +45,6 @@ def export_flexify_data(db_path, sets_output_path, bw_output_path):
         # Connect to the database
         logger.info(f"Connecting to database: {db_path}")
         if not os.path.exists(db_path):
-            # Use logger.error for critical issues preventing execution
             logger.error(f"Database file not found at {db_path}")
             raise FileNotFoundError(f"Database file not found at {db_path}")
 
@@ -61,7 +62,8 @@ def export_flexify_data(db_path, sets_output_path, bw_output_path):
         """)
 
         rows = cursor.fetchall()
-        logger.info(f"Read {len(rows)} rows from gym_sets table.")
+        total_rows_read = len(rows)
+        logger.info(f"Read {total_rows_read} total rows from gym_sets table.")
 
         # Prepare data lists for CSV writing
         workout_rows = []
@@ -80,7 +82,8 @@ def export_flexify_data(db_path, sets_output_path, bw_output_path):
 
             is_bodyweight_entry = (row_data["name"] == "Weight")
 
-            csv_row = []
+            # Prepare the common part of the CSV row data
+            csv_row_dict = {}
             for header in CSV_HEADER:
                 value = None
                 if header == "id": value = row_data.get("id")
@@ -96,13 +99,36 @@ def export_flexify_data(db_path, sets_output_path, bw_output_path):
                 elif header == "minutes": value = ""
                 elif header == "seconds": value = ""
                 elif header == "steps": value = ""
+                csv_row_dict[header] = value if value is not None else ""
 
-                csv_row.append(value if value is not None else "")
+            # Convert dict to list in correct order
+            csv_row = [csv_row_dict[h] for h in CSV_HEADER]
 
+            # Append to the correct list, applying the filter for workout sets
             if is_bodyweight_entry:
                 bw_rows.append(csv_row)
             else:
-                workout_rows.append(csv_row)
+                # *** FILTER ADDED HERE ***
+                # Only include workout sets with more than 0 reps
+                reps_value = row_data.get("reps", 0) # Get reps, default to 0 if missing
+                # Ensure reps_value is treated as a number for comparison
+                try:
+                    numeric_reps = float(reps_value) if reps_value is not None else 0.0
+                except (ValueError, TypeError):
+                    numeric_reps = 0.0
+                    logger.warning(f"Could not convert reps '{reps_value}' to number for row ID {row_data.get('id')}. Treating as 0.")
+
+                if numeric_reps > 0:
+                    workout_rows.append(csv_row)
+                else:
+                    skipped_template_count += 1
+                    # Log skipped rows at DEBUG level if needed
+                    logger.trace(f"Skipping template/zero-rep row ID {row_data.get('id')}: name='{row_data.get('name')}', reps={reps_value}")
+
+
+        # Log summary of skipped rows
+        if skipped_template_count > 0:
+            logger.info(f"Skipped {skipped_template_count} rows likely representing templates (reps <= 0).")
 
         # Write workout data to sets.csv
         logger.info(f"Writing {len(workout_rows)} workout rows to {sets_output_path}")
@@ -118,17 +144,13 @@ def export_flexify_data(db_path, sets_output_path, bw_output_path):
             writer.writerow(CSV_HEADER)
             writer.writerows(bw_rows)
 
-        # Use logger.success for successful completion
         logger.success("Export complete.")
 
     except FileNotFoundError as e:
-        # Log the specific error before re-raising or exiting
         logger.error(f"File system error: {e}")
     except sqlite3.Error as e:
-        # Log database-specific errors
         logger.error(f"Database error: {e}")
     except Exception as e:
-        # Use logger.exception for unexpected errors to include traceback
         logger.exception(f"An unexpected error occurred: {e}")
     finally:
         if conn:
@@ -165,7 +187,6 @@ if __name__ == "__main__":
     sets_csv_output_path = os.path.join(output_directory, 'sets.csv')
     bw_csv_output_path = os.path.join(output_directory, 'bw.csv')
 
-    # Log the configuration using logger.info
     logger.info(f"Input Database: {os.path.abspath(args.input_db)}")
     logger.info(f"Output Directory: {os.path.abspath(output_directory)}")
     logger.info(f"Output Sets CSV: {os.path.abspath(sets_csv_output_path)}")
