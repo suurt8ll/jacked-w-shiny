@@ -11,75 +11,93 @@ BACKUP_CSV = "data/exercise_definitions.bak.csv"
 
 def get_connection(db_path):
     """Creates a connection to the SQLite database."""
-    conn = sqlite3.connect(db_path)
-    return conn
+    return sqlite3.connect(db_path)
 
 def detect_time_unit(series):
     """
     Heuristic to detect if timestamps are seconds or milliseconds.
-    If the median value is greater than 3 billion, it's likely milliseconds.
     """
+    if series.empty: return 's'
     median_ts = series.median()
-    # 3e10 is roughly the year 2920 in seconds, but 1970 in milliseconds.
-    # 3e9 is year 2065 in seconds.
+    # > 3 billion usually implies milliseconds for recent dates
     if median_ts > 3_000_000_000: 
         return 'ms'
     return 's'
 
+def clean_round(val):
+    """
+    Forces a clean 2 decimal float for Python before sending to SQLite.
+    (SQLite might still store 92.9 as 92.9000000000000056 internally due to IEEE 754)
+    """
+    if pd.isna(val): return None
+    return float(f"{val:.2f}")
+
 def maintain_definitions(conn):
-    print("--- Task 1: Updating Exercise Definitions CSV ---")
+    print("--- Task 1: Updating & Sorting Exercise Definitions CSV ---")
     
     # 1. Load existing definitions
     if not os.path.exists(DEFINITIONS_CSV):
         print(f"Warning: {DEFINITIONS_CSV} not found. Creating new.")
-        existing_df = pd.DataFrame(columns=["Exercise", "isBW", "bwMultiplier", "MovementPattern", "PrimaryMover", "Notes"])
+        # We include 'first_seen' in the schema now
+        csv_df = pd.DataFrame(columns=["Exercise", "isBW", "bwMultiplier", "MovementPattern", "PrimaryMover", "Notes", "first_seen"])
     else:
-        existing_df = pd.read_csv(DEFINITIONS_CSV)
+        csv_df = pd.read_csv(DEFINITIONS_CSV)
         # Create backup
         shutil.copy(DEFINITIONS_CSV, BACKUP_CSV)
+        print(f"Backup created at {BACKUP_CSV}")
 
-    existing_exercises = set(existing_df['Exercise'].str.strip().unique())
-
-    # 2. Get all exercises from DB (excluding 'Weight' which is bodyweight logs)
+    # 2. Get stats from DB (name and first_seen)
+    # Exclude 'Weight' as that is bodyweight log, not an exercise
     query = """
-    SELECT name, MIN(created) as first_seen 
+    SELECT name, MIN(created) as db_first_seen_raw 
     FROM gym_sets 
     WHERE name != 'Weight' 
     GROUP BY name
     """
-    db_exercises_df = pd.read_sql_query(query, conn)
+    db_df = pd.read_sql_query(query, conn)
     
-    # 3. Identify new exercises
-    new_exercises = []
-    for _, row in db_exercises_df.iterrows():
-        name = row['name'].strip()
-        if name not in existing_exercises:
-            new_exercises.append({
-                "Exercise": name,
-                "first_seen": row['first_seen'],
-                "isBW": 0,
-                "bwMultiplier": 0,
-                "MovementPattern": None,
-                "PrimaryMover": None,
-                "Notes": "Auto-added needs review"
-            })
+    # Convert DB timestamps to readable ISO format for the CSV
+    time_unit = detect_time_unit(db_df['db_first_seen_raw'])
+    db_df['first_seen'] = pd.to_datetime(db_df['db_first_seen_raw'], unit=time_unit)
+
+    # 3. Merge CSV with DB stats
+    # We do an OUTER join. 
+    # - Rows in CSV but not DB: Old exercises, keep them.
+    # - Rows in DB but not CSV: New exercises, add them.
+    merged = pd.merge(csv_df, db_df, left_on="Exercise", right_on="name", how="outer")
     
-    if new_exercises:
-        print(f"Found {len(new_exercises)} new exercises.")
-        new_df = pd.DataFrame(new_exercises)
-        
-        # Sort new exercises by when they were first seen
-        new_df = new_df.sort_values(by="first_seen")
-        
-        # Drop the temp sorting column
-        new_df = new_df.drop(columns=["first_seen"])
-        
-        # Combine and Save
-        final_df = pd.concat([existing_df, new_df], ignore_index=True)
-        final_df.to_csv(DEFINITIONS_CSV, index=False)
-        print(f"Updated {DEFINITIONS_CSV}")
-    else:
-        print("No new exercises found.")
+    # 4. Fill Data
+    # If 'Exercise' is NaN (meaning it came from DB only), fill it with 'name'
+    merged['Exercise'] = merged['Exercise'].fillna(merged['name'])
+    
+    # Identify new rows (where 'isBW' was NaN, meaning it wasn't in the CSV)
+    new_mask = merged['isBW'].isna()
+    if new_mask.any():
+        print(f"Found {new_mask.sum()} new exercises.")
+        merged.loc[new_mask, 'isBW'] = 0
+        merged.loc[new_mask, 'bwMultiplier'] = 0
+        merged.loc[new_mask, 'Notes'] = "Auto-added needs review"
+    
+    # Update 'first_seen' in CSV using the fresh data from DB. 
+    # If the CSV already had a 'first_seen', we overwrite it with the DB truth (y_column)
+    # If the exercise is not in DB anymore (legacy), we keep the old date if it exists (x_column)
+    if 'first_seen_x' in merged.columns and 'first_seen_y' in merged.columns:
+        merged['first_seen'] = merged['first_seen_y'].fillna(merged['first_seen_x'])
+    elif 'first_seen' in db_df.columns:
+         # if CSV didn't have first_seen column before, just take from DB
+         pass 
+
+    # 5. Clean up columns
+    # Ensure we have the columns we want in order
+    cols = ["Exercise", "isBW", "bwMultiplier", "MovementPattern", "PrimaryMover", "Notes", "first_seen"]
+    final_df = merged[cols].copy()
+    
+    # 6. Sort by first_seen
+    final_df = final_df.sort_values(by="first_seen", na_position='last')
+    
+    # 7. Save
+    final_df.to_csv(DEFINITIONS_CSV, index=False)
+    print(f"Updated {DEFINITIONS_CSV} (sorted by first appearance).")
 
 def backfill_categories(conn):
     print("\n--- Task 3: Backfilling Categories ---")
@@ -88,105 +106,92 @@ def backfill_categories(conn):
     query = "SELECT name, category FROM gym_sets WHERE category IS NOT NULL AND category != ''"
     df = pd.read_sql_query(query, conn)
     
-    # Group by name to see unique categories used for each exercise
     grouped = df.groupby('name')['category'].unique()
     
-    updates = {}
+    cursor = conn.cursor()
+    updates_made = 0
     
     for name, categories in grouped.items():
         if len(categories) == 0:
             continue
-        elif len(categories) == 1:
-            # Good case: exactly one category used for this exercise
-            updates[name] = categories[0]
-        else:
-            # Bad case: Multiple categories for the same exercise name
-            print(f"WARNING: Exercise '{name}' has conflicting categories: {categories}. Skipping auto-update for this exercise.")
-
-    # Apply updates
-    cursor = conn.cursor()
-    update_count = 0
-    
-    for name, category in updates.items():
-        # Update rows where name matches BUT category is missing
-        sql = "UPDATE gym_sets SET category = ? WHERE name = ? AND (category IS NULL OR category = '')"
-        cursor.execute(sql, (category, name))
-        update_count += cursor.rowcount
         
+        target_category = None
+        
+        if len(categories) == 1:
+            # Good case: exactly one category used for this exercise
+            target_category = categories[0]
+            # Logic: Update only rows that are MISSING a category
+            sql = "UPDATE gym_sets SET category = ? WHERE name = ? AND (category IS NULL OR category = '')"
+            cursor.execute(sql, (target_category, name))
+            updates_made += cursor.rowcount
+            
+        else:
+            # Conflict case: Multiple categories
+            print(f"\n[!] CONFLICT: Exercise '{name}' uses multiple categories: {categories}")
+            print(f"    Type the category name to FORCE UPDATE ALL entries for '{name}'.")
+            print(f"    Press [ENTER] to skip and leave as is.")
+            
+            user_input = input(f"    > ").strip()
+            
+            if user_input:
+                target_category = user_input
+                print(f"    -> Overwriting ALL '{name}' entries to '{target_category}'...")
+                # Logic: Overwrite EVERYTHING (even existing different categories)
+                sql = "UPDATE gym_sets SET category = ? WHERE name = ?"
+                cursor.execute(sql, (target_category, name))
+                updates_made += cursor.rowcount
+            else:
+                print("    -> Skipped.")
+
     conn.commit()
-    print(f"Backfilled category for {update_count} rows.")
+    print(f"Category updates applied to {updates_made} rows.")
 
 def inject_bodyweight(conn):
     print("\n--- Task 2: Injecting Smart Bodyweight (Moving Average) ---")
     
-    # 1. Load relevant data
-    # We need 'id', 'created', 'name', 'weight' (the actual lift/measurement)
     df = pd.read_sql_query("SELECT id, created, name, weight FROM gym_sets", conn)
     
-    if df.empty:
-        print("Database is empty, skipping.")
-        return
+    if df.empty: return
 
     # Detect time unit and convert to datetime
     time_unit = detect_time_unit(df['created'])
     df['dt'] = pd.to_datetime(df['created'], unit=time_unit)
     
-    # 2. Extract Ground Truth Bodyweight
-    # In this app, rows with name='Weight' are the bodyweight logs
+    # Extract Ground Truth Bodyweight
     bw_df = df[df['name'] == 'Weight'].copy()
-    
     if bw_df.empty:
-        print("No bodyweight measurements found (name='Weight'). Skipping injection.")
+        print("No bodyweight measurements found. Skipping.")
         return
 
-    # 3. Calculate Moving Average Curve
-    # Resample to Daily to handle multiple weigh-ins per day or gaps
+    # Calculate Moving Average Curve
     bw_series = bw_df.set_index('dt')['weight']
-    
-    # Resample to daily average (if multiple weigh-ins in one day)
     daily_bw = bw_series.resample('D').mean()
-    
-    # Interpolate time-based to fill gaps between weigh-in days (linear interpolation between points)
     daily_interpolated = daily_bw.interpolate(method='time')
-    
-    # Calculate Rolling Moving Average (e.g., 7-day window) to smooth it out
-    # min_periods=1 ensures we get values even at the start of the log
     smoothed_bw = daily_interpolated.rolling(window=7, min_periods=1).mean()
     
-    # 4. Map smoothed weights back to ALL database entries
-    # We use merge_asof to find the closest previous timestamp in our smoothed curve
-    
-    # Prepare lookup table
+    # Map smoothed weights back to DB
     lookup_df = pd.DataFrame({'dt': smoothed_bw.index, 'smart_bw': smoothed_bw.values})
     lookup_df = lookup_df.dropna().sort_values('dt')
     
-    # Sort main df for merge_asof
     df = df.sort_values('dt')
-    
-    # Perform the merge
-    # direction='backward' means use the latest available rolling average value
     merged_df = pd.merge_asof(df, lookup_df, on='dt', direction='backward')
-    
-    # Handle cases before the first weigh-in (backfill with the first available weight)
     merged_df['smart_bw'] = merged_df['smart_bw'].bfill()
     
-    # Round to 2 decimal places
-    merged_df['smart_bw'] = merged_df['smart_bw'].round(2)
+    # Clean Rounding (Python side)
+    # We apply the helper function to ensure it's a clean standard float
+    merged_df['smart_bw'] = merged_df['smart_bw'].apply(clean_round)
     
-    # 5. Update the Database
-    # We only want to update rows where the calculated bodyweight is valid
+    # Update Database
     update_data = merged_df[['id', 'smart_bw']].dropna()
     
-    # Convert to list of tuples for SQLite executemany
-    update_list = list(update_data.itertuples(index=False, name=None))
-    # Tuple structure: (id, smart_bw) -> SQL expects (smart_bw, id)
-    update_list_formatted = [(bw, row_id) for row_id, bw in update_list]
+    # Convert to list of tuples (smart_bw, id)
+    update_list = [(row.smart_bw, row.id) for row in update_data.itertuples(index=False)]
 
     cursor = conn.cursor()
-    cursor.executemany("UPDATE gym_sets SET body_weight = ? WHERE id = ?", update_list_formatted)
+    cursor.executemany("UPDATE gym_sets SET body_weight = ? WHERE id = ?", update_list)
     conn.commit()
     
-    print(f"Updated 'body_weight' column for {len(update_list_formatted)} rows.")
+    print(f"Updated 'body_weight' column for {len(update_list)} rows.")
 
 def main():
     if not os.path.exists(SOURCE_DB):
@@ -199,13 +204,13 @@ def main():
     conn = get_connection(TARGET_DB)
     
     try:
-        # Task 1
+        # Task 1: CSV Maintenance
         maintain_definitions(conn)
         
-        # Task 3 (Run before Task 2 or doesn't matter, but good to clean metadata first)
+        # Task 3: Categories (Run before bodyweight just to keep logic clean)
         backfill_categories(conn)
         
-        # Task 2
+        # Task 2: Bodyweight
         inject_bodyweight(conn)
         
     finally:
