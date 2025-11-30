@@ -123,6 +123,7 @@ render_rep_tonnage_plot <- function(exercise_name, poly_degree = 2) {
     }
 
     # 4. Create the BASE plot in ggplot
+    # We don't use Plotly directy because in this case syncting the Shiny theme with thematic does not work.
     p <- ggplot() +
       geom_line(data = rep_tonnage_peaks, aes(x = reps, y = single_set_tonnage), # Line connecting actual max points
                 color = "purple", group = 1) +
@@ -135,6 +136,7 @@ render_rep_tonnage_plot <- function(exercise_name, poly_degree = 2) {
       scale_x_continuous(breaks = scales::pretty_breaks(n = max(1, min(10, nrow(rep_tonnage_peaks) + 1))),
                          limits = c(0, NA)) + # Ensure x-axis starts at 0
       scale_y_continuous(limits = c(0, NA)) # Ensure y-axis starts at 0
+      # NO any theme_*() method here, because it messes up the theme sync.
 
     # 5. Convert to Plotly
     pl <- ggplotly(p)

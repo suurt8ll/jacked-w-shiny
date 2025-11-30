@@ -4,14 +4,27 @@
 # Path to Rscript executable (usually in PATH, but can be set explicitly)
 RSCRIPT_EXEC="Rscript"
 
+# Path to Python virtual environment
+VENV_PATH=".venv"
+# Path to the Python executable within the virtual environment
+PYTHON_EXEC="$VENV_PATH/bin/python"
+# Path to the Flexify conversion script
+FLEXIFY_SCRIPT_PATH="tools/flexify_to_csv.py"
+# Directory containing Flexify databases and where CSVs will be generated
+DATA_DIR="data"
+
+
 # --- Helper Functions ---
 usage() {
   cat << EOF
 Usage: $(basename "$0") [options]
 
 Wrapper script to launch a Shiny R application using shiny::runApp().
+This script will first activate a Python virtual environment and run
+'${FLEXIFY_SCRIPT_PATH}' to convert the latest Flexify database
+(from '${DATA_DIR}/flexify*.sqlite') into CSV files.
 
-Options mirror shiny::runApp arguments:
+Shiny Options (mirror shiny::runApp arguments):
   -a, --appDir <dir>          Directory containing the Shiny app (app.R, ui.R/server.R).
                               Defaults to current directory if not specified here or in R options.
   -p, --port <port>           Port number to run the app on.
@@ -58,164 +71,118 @@ QUIET="FALSE" # Default R value
 DISPLAY_MODE=""
 TEST_MODE="FALSE" # Default R value
 BROWSER_VALUE=""
-AUTORELOAD_VALUE="" # New variable for autoreload flag
+AUTORELOAD_VALUE=""
 VERBOSE=0
 
-# Use getopt for robust argument parsing (handles long options)
-# Note: Adjust getopt syntax slightly if using macOS getopt (install gnu-getopt: brew install gnu-getopt)
 GETOPT_CMD="getopt"
-# On macOS with gnu-getopt installed via Homebrew, it might be named 'ggetopt'
-# or you might need to add it to your PATH. Check your system.
-# if [[ "$(uname)" == "Darwin" ]] && command -v ggetopt &> /dev/null; then
-#    GETOPT_CMD="ggetopt"
-# fi
-
-# Define options
-# Short options: a:, p:, l:, H:, w:, q, d:, t, b:, h, v, r: (added r:)
-# Long options: appDir:, port:, launch-browser:, host:, workerId:, quiet, display-mode:, test-mode, browser-value:, help, verbose, autoreload: (added autoreload:)
-# The ':' means the option takes an argument.
 PARSED_ARGS=$($GETOPT_CMD -o a:p:l:H:w:qd:tb:hvr: --long appDir:,port:,launch-browser:,host:,workerId:,quiet,display-mode:,test-mode,browser-value:,help,verbose,autoreload: \
              -n "$(basename "$0")" -- "$@")
 
-# Check if getopt had parsing errors
 if [ $? -ne 0 ]; then
     usage
 fi
 
-# Use eval to correctly handle arguments with spaces
 eval set -- "$PARSED_ARGS"
 
-# Process parsed arguments
 while true; do
     case "$1" in
-        -a | --appDir)
-            APP_DIR="$2"
-            shift 2
-            ;;
-        -p | --port)
-            PORT="$2"
-            shift 2
-            ;;
-        -l | --launch-browser)
-            LAUNCH_BROWSER="$2"
-            shift 2
-            ;;
-        -H | --host)
-            HOST="$2"
-            shift 2
-            ;;
-        -w | --workerId)
-            WORKER_ID="$2"
-            shift 2
-            ;;
-        -q | --quiet)
-            QUIET="TRUE" # Set R value to TRUE when flag is present
-            shift 1
-            ;;
-        -d | --display-mode)
-            DISPLAY_MODE="$2"
-            shift 2
-            ;;
-        -t | --test-mode)
-            TEST_MODE="TRUE" # Set R value to TRUE when flag is present
-            shift 1
-            ;;
-        -b | --browser-value)
-            BROWSER_VALUE="$2"
-            shift 2
-            ;;
-        -r | --autoreload) # New case for autoreload
-            AUTORELOAD_VALUE="$2"
-            shift 2
-            ;;
-        -h | --help)
-            usage
-            ;;
-        -v | --verbose)
-            VERBOSE=1
-            shift 1
-            ;;
-        --)
-            shift # Consume the '--' separator
-            break # End of options
-            ;;
-        *)
-            echo "Programming error in getopt parsing!"
-            exit 3
-            ;;
+        -a | --appDir) APP_DIR="$2"; shift 2 ;;
+        -p | --port) PORT="$2"; shift 2 ;;
+        -l | --launch-browser) LAUNCH_BROWSER="$2"; shift 2 ;;
+        -H | --host) HOST="$2"; shift 2 ;;
+        -w | --workerId) WORKER_ID="$2"; shift 2 ;;
+        -q | --quiet) QUIET="TRUE"; shift 1 ;;
+        -d | --display-mode) DISPLAY_MODE="$2"; shift 2 ;;
+        -t | --test-mode) TEST_MODE="TRUE"; shift 1 ;;
+        -b | --browser-value) BROWSER_VALUE="$2"; shift 2 ;;
+        -r | --autoreload) AUTORELOAD_VALUE="$2"; shift 2 ;;
+        -h | --help) usage ;;
+        -v | --verbose) VERBOSE=1; shift 1 ;;
+        --) shift; break ;;
+        *) echo "Programming error in getopt parsing!"; exit 3 ;;
     esac
 done
 
-# Handle any remaining arguments (should be none according to our getopt setup)
 if [ $# -gt 0 ]; then
     echo "Error: Unexpected arguments found: $@"
     usage
 fi
 
-# --- Construct R Command ---
+# --- Pre-Shiny Steps: Virtual Env and Data Conversion ---
+echo "--- Preparing data for Shiny app ---"
 
-# Start R code string
-R_CODE="library(shiny);"
-
-# Add browser option if specified
-if [[ -n "$BROWSER_VALUE" ]]; then
-    # Quote the value properly for R string literal. Basic single quoting.
-    # More complex values might need careful escaping.
-    # This handles simple cases like 'firefox' or '/path/to/browser %s'
-    # For R functions passed as string, ensure the string is valid R syntax.
-    R_CODE+=" options(browser = '${BROWSER_VALUE//\'/\'\\\'\'}');" # Escape single quotes within the value
+# 1. Check for virtual environment and Python executable
+if [ ! -d "$VENV_PATH" ]; then
+    echo "Error: Python virtual environment not found at $VENV_PATH"
+    echo "Please create it first (e.g., python -m venv $VENV_PATH && $VENV_PATH/bin/pip install -r requirements.txt)"
+    exit 1
+fi
+if [ ! -x "$PYTHON_EXEC" ]; then
+    echo "Error: Python executable not found or not executable in virtual environment at $PYTHON_EXEC"
+    exit 1
 fi
 
-# Add autoreload option if specified
+# 2. Check for Flexify conversion script
+if [ ! -f "$FLEXIFY_SCRIPT_PATH" ]; then
+    echo "Error: Flexify conversion script not found at $FLEXIFY_SCRIPT_PATH"
+    exit 1
+fi
+
+# 3. Find the latest Flexify SQLite database
+echo "Looking for the latest Flexify SQLite database in '$DATA_DIR'..."
+# List files matching pattern, sort by modification time (newest first), take the first one.
+# Suppress "No such file or directory" error from ls if no files match, then check if LATEST_DB_FILE is empty.
+LATEST_DB_FILE=$(ls -1t "$DATA_DIR"/flexify*.sqlite 2>/dev/null | head -n 1)
+
+if [ -z "$LATEST_DB_FILE" ]; then
+    echo "Error: No Flexify SQLite database files (flexify*.sqlite) found in '$DATA_DIR'."
+    echo "Cannot proceed with data conversion."
+    exit 1
+fi
+echo "Found latest database: $LATEST_DB_FILE"
+
+# 4. Run the conversion script
+echo "Running Flexify to CSV conversion using $PYTHON_EXEC $FLEXIFY_SCRIPT_PATH..."
+# Assuming flexify_to_csv.py takes the DB file as its first argument
+# and outputs CSVs to a location Shiny expects (e.g., ./data or a configured path within the script)
+"$PYTHON_EXEC" "$FLEXIFY_SCRIPT_PATH" "$LATEST_DB_FILE"
+CONVERSION_STATUS=$?
+
+if [ $CONVERSION_STATUS -ne 0 ]; then
+    echo "Error: Flexify to CSV conversion script failed with exit code $CONVERSION_STATUS."
+    exit $CONVERSION_STATUS
+fi
+echo "Data conversion successful. CSV files should be updated in '$DATA_DIR'."
+echo "--- Data preparation complete ---"
+echo # Newline for readability before Shiny output
+
+# --- Construct R Command ---
+R_CODE="library(shiny);"
+
+if [[ -n "$BROWSER_VALUE" ]]; then
+    R_CODE+=" options(browser = '${BROWSER_VALUE//\'/\'\\\'\'}');"
+fi
+
 if [[ -n "$AUTORELOAD_VALUE" ]]; then
-    # Convert value to uppercase for R's TRUE/FALSE
     AUTORELOAD_R_VALUE="${AUTORELOAD_VALUE^^}"
-    # Check if it's a valid boolean (optional but good practice)
     if [[ "$AUTORELOAD_R_VALUE" != "TRUE" && "$AUTORELOAD_R_VALUE" != "FALSE" ]]; then
         echo "Error: Invalid value for --autoreload/-r: '$AUTORELOAD_VALUE'. Must be TRUE or FALSE."
-        usage # Exit with error and show usage
+        usage
     fi
-    # Add the options() call to the R code string
     R_CODE+=" options(shiny.autoreload = ${AUTORELOAD_R_VALUE});"
 fi
 
-
-# Build the list of arguments for runApp
 R_ARGS=()
-if [[ -n "$APP_DIR" ]]; then
-    # Quote for R string literal
-    R_ARGS+=("appDir = '${APP_DIR//\'/\'\\\'\'}'")
-fi
-if [[ -n "$PORT" ]]; then
-    # Numeric, no quotes needed in R
-    R_ARGS+=("port = $PORT")
-fi
-if [[ -n "$LAUNCH_BROWSER" ]]; then
-    # Boolean, uppercase TRUE/FALSE, no quotes needed in R
-    R_ARGS+=("launch.browser = ${LAUNCH_BROWSER^^}")
-fi
-if [[ -n "$HOST" ]]; then
-    # Quote for R string literal
-    R_ARGS+=("host = '${HOST//\'/\'\\\'\'}'")
-fi
-if [[ -n "$WORKER_ID" ]]; then
-    # Quote for R string literal
-    R_ARGS+=("workerId = '${WORKER_ID//\'/\'\\\'\'}'")
-fi
-# Quiet is handled directly by its TRUE/FALSE value
+if [[ -n "$APP_DIR" ]]; then R_ARGS+=("appDir = '${APP_DIR//\'/\'\\\'\'}'"); fi
+if [[ -n "$PORT" ]]; then R_ARGS+=("port = $PORT"); fi
+if [[ -n "$LAUNCH_BROWSER" ]]; then R_ARGS+=("launch.browser = ${LAUNCH_BROWSER^^}"); fi
+if [[ -n "$HOST" ]]; then R_ARGS+=("host = '${HOST//\'/\'\\\'\'}'"); fi
+if [[ -n "$WORKER_ID" ]]; then R_ARGS+=("workerId = '${WORKER_ID//\'/\'\\\'\'}'"); fi
 R_ARGS+=("quiet = $QUIET")
-
-if [[ -n "$DISPLAY_MODE" ]]; then
-    # Quote for R string literal
-    R_ARGS+=("display.mode = '${DISPLAY_MODE//\'/\'\\\'\'}'")
-fi
-# Test mode is handled directly by its TRUE/FALSE value
+if [[ -n "$DISPLAY_MODE" ]]; then R_ARGS+=("display.mode = '${DISPLAY_MODE//\'/\'\\\'\'}'"); fi
 R_ARGS+=("test.mode = $TEST_MODE")
 
-# Join arguments with commas
 R_ARGS_STR=$(IFS=, ; echo "${R_ARGS[*]}")
-
-# Append the runApp call
 R_CODE+=" shiny::runApp(${R_ARGS_STR});"
 
 # --- Execute R Command ---
@@ -227,7 +194,6 @@ if [[ "$VERBOSE" -eq 1 ]]; then
   echo "Executing Shiny App..."
 fi
 
-# Check if Rscript exists
 if ! command -v "$RSCRIPT_EXEC" &> /dev/null; then
     echo "Error: '$RSCRIPT_EXEC' command not found."
     echo "Please ensure R is installed and Rscript is in your PATH,"
@@ -235,10 +201,7 @@ if ! command -v "$RSCRIPT_EXEC" &> /dev/null; then
     exit 127
 fi
 
-# Execute the R code
 "$RSCRIPT_EXEC" -e "$R_CODE"
-
-# Capture exit status from Rscript
 R_EXIT_CODE=$?
 
 if [[ "$VERBOSE" -eq 1 ]]; then
