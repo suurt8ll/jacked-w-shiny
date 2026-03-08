@@ -8,6 +8,8 @@ RSCRIPT_EXEC="Rscript"
 VENV_PATH=".venv"
 # Path to the Python executable within the virtual environment
 PYTHON_EXEC="$VENV_PATH/bin/python"
+# Path to the Database Maintenance script
+MAINTAIN_SCRIPT_PATH="tools/maintain_db.py"
 # Path to the Flexify conversion script
 FLEXIFY_SCRIPT_PATH="tools/flexify_to_csv.py"
 # Directory containing Flexify databases and where CSVs will be generated
@@ -20,9 +22,9 @@ usage() {
 Usage: $(basename "$0") [options]
 
 Wrapper script to launch a Shiny R application using shiny::runApp().
-This script will first activate a Python virtual environment and run
-'${FLEXIFY_SCRIPT_PATH}' to convert the latest Flexify database
-(from '${DATA_DIR}/flexify*.sqlite') into CSV files.
+This script will first activate a Python virtual environment, run
+'${MAINTAIN_SCRIPT_PATH}' to augment the database, and then run
+'${FLEXIFY_SCRIPT_PATH}' to convert the "beefed" database into CSV files.
 
 Shiny Options (mirror shiny::runApp arguments):
   -a, --appDir <dir>          Directory containing the Shiny app (app.R, ui.R/server.R).
@@ -122,30 +124,45 @@ if [ ! -x "$PYTHON_EXEC" ]; then
     exit 1
 fi
 
-# 2. Check for Flexify conversion script
+# 2. Check for required scripts
+if [ ! -f "$MAINTAIN_SCRIPT_PATH" ]; then
+    echo "Error: Database maintenance script not found at $MAINTAIN_SCRIPT_PATH"
+    exit 1
+fi
 if [ ! -f "$FLEXIFY_SCRIPT_PATH" ]; then
     echo "Error: Flexify conversion script not found at $FLEXIFY_SCRIPT_PATH"
     exit 1
 fi
 
 # 3. Find the latest Flexify SQLite database
-echo "Looking for the latest Flexify SQLite database in '$DATA_DIR'..."
-# List files matching pattern, sort by modification time (newest first), take the first one.
-# Suppress "No such file or directory" error from ls if no files match, then check if LATEST_DB_FILE is empty.
-LATEST_DB_FILE=$(ls -1t "$DATA_DIR"/flexify*.sqlite 2>/dev/null | head -n 1)
+echo "Looking for the latest raw Flexify SQLite database in '$DATA_DIR'..."
+# List files matching pattern, sort by modification time (newest first).
+# Using grep -v to purposefully exclude the generated _beefed database.
+LATEST_DB_FILE=$(ls -1t "$DATA_DIR"/flexify*.sqlite 2>/dev/null | grep -v "_beefed\.sqlite$" | head -n 1)
 
 if [ -z "$LATEST_DB_FILE" ]; then
-    echo "Error: No Flexify SQLite database files (flexify*.sqlite) found in '$DATA_DIR'."
+    echo "Error: No raw Flexify SQLite database files (flexify*.sqlite) found in '$DATA_DIR'."
     echo "Cannot proceed with data conversion."
     exit 1
 fi
-echo "Found latest database: $LATEST_DB_FILE"
+echo "Found latest raw database: $LATEST_DB_FILE"
 
-# 4. Run the conversion script
+# 4. Run database maintenance (Beef up the DB)
+BEEFED_DB_FILE="${DATA_DIR}/flexify_beefed.sqlite"
+echo "Running database maintenance using $PYTHON_EXEC $MAINTAIN_SCRIPT_PATH..."
+"$PYTHON_EXEC" "$MAINTAIN_SCRIPT_PATH" --source "$LATEST_DB_FILE" --target "$BEEFED_DB_FILE"
+MAINTAIN_STATUS=$?
+
+if [ $MAINTAIN_STATUS -ne 0 ]; then
+    echo "Error: Database maintenance script failed with exit code $MAINTAIN_STATUS."
+    exit $MAINTAIN_STATUS
+fi
+echo "Database augmented successfully: $BEEFED_DB_FILE"
+
+# 5. Run the conversion script
 echo "Running Flexify to CSV conversion using $PYTHON_EXEC $FLEXIFY_SCRIPT_PATH..."
-# Assuming flexify_to_csv.py takes the DB file as its first argument
-# and outputs CSVs to a location Shiny expects (e.g., ./data or a configured path within the script)
-"$PYTHON_EXEC" "$FLEXIFY_SCRIPT_PATH" "$LATEST_DB_FILE"
+# Pass the modified/beefed database to the CSV converter
+"$PYTHON_EXEC" "$FLEXIFY_SCRIPT_PATH" "$BEEFED_DB_FILE"
 CONVERSION_STATUS=$?
 
 if [ $CONVERSION_STATUS -ne 0 ]; then
